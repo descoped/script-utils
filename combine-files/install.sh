@@ -22,7 +22,7 @@ get_shell_config() {
     fi
 }
 
-# Get the parent directory name
+# Get the parent directory name (combine-files in this case)
 parent_dir=$(basename "$(dirname "$REPO_URL")")
 
 # Download and parse the configuration file
