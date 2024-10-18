@@ -7,7 +7,17 @@ download_file() {
     local filename=$1
     local destination=$2
     local url="$REPO_URL/$filename"
-    curl -sSL -o "$destination/$filename" "$url" || { echo "Failed to download $filename"; exit 1; }
+    curl -sSL -o "$destination" "$url" || { echo "Failed to download $filename"; exit 1; }
+}
+
+download_folder() {
+    local foldername=$1
+    local destination=$2
+    local url="$REPO_URL/$foldername"
+    local file_list=$(curl -sSL "$url" | grep '<a href' | sed -n 's/.*href="\([^"]*\).*/\1/p' | grep -v '^\.\.' | grep -v '^/$')
+    for file in $file_list; do
+        download_file "$foldername$file" "$destination/$file"
+    done
 }
 
 get_shell_config() {
@@ -22,12 +32,9 @@ get_shell_config() {
     fi
 }
 
-# Get the parent directory name (combine-files in this case)
-parent_dir=$(basename "$(dirname "$REPO_URL")")
-
 # Download and parse the configuration file
 config_file="install_config.yaml"
-download_file "$config_file" "/tmp"
+download_file "$config_file" "/tmp/$config_file"
 config="/tmp/$config_file"
 
 # Set default installation directory
@@ -49,7 +56,7 @@ case "$answer" in
 esac
 
 # Create the main installation directory
-mkdir -p "$install_dir"
+mkdir -p "$install_dir/combine-files"
 
 # Process each file in the configuration
 while IFS= read -r line; do
@@ -64,34 +71,46 @@ while IFS= read -r line; do
             ;;
         "  destination:"*)
             subdir=$(echo "$line" | cut -d' ' -f4)
-            if [ "$subdir" = "docs" ]; then
-                destination="$install_dir/docs/$parent_dir"
-            else
-                destination="$install_dir/$subdir"
-            fi
+            destination="$install_dir/$subdir"
             mkdir -p "$destination"
             ;;
         *)
-            # If we've reached a blank line, process the previous file
+            # If we've reached a blank line, process the previous file or folder
             if [ -n "$file" ]; then
-                download_file "$file" "$destination"
-                if [ "$executable" = "true" ]; then
-                    chmod +x "$destination/$file"
+                if echo "$file" | grep -q '\*$'; then
+                    # It's a folder
+                    foldername=$(echo "$file" | sed 's/\*$//')
+                    download_folder "$foldername" "$destination"
+                    echo "Installed contents of $foldername to $destination"
+                else
+                    # It's a file
+                    download_file "$file" "$destination/$file"
+                    if [ "$executable" = "true" ]; then
+                        chmod +x "$destination/$file"
+                    fi
+                    echo "Installed $file to $destination/$file"
                 fi
-                echo "Installed $file to $destination"
                 file=""
             fi
             ;;
     esac
 done < "$config"
 
-# Process the last file if there's no blank line at the end
+# Process the last file or folder if there's no blank line at the end
 if [ -n "$file" ]; then
-    download_file "$file" "$destination"
-    if [ "$executable" = "true" ]; then
-        chmod +x "$destination/$file"
+    if echo "$file" | grep -q '\*$'; then
+        # It's a folder
+        foldername=$(echo "$file" | sed 's/\*$//')
+        download_folder "$foldername" "$destination"
+        echo "Installed contents of $foldername to $destination"
+    else
+        # It's a file
+        download_file "$file" "$destination/$file"
+        if [ "$executable" = "true" ]; then
+            chmod +x "$destination/$file"
+        fi
+        echo "Installed $file to $destination/$file"
     fi
-    echo "Installed $file to $destination"
 fi
 
 echo "Installation complete. Scripts installed in $install_dir"
