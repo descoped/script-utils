@@ -46,7 +46,11 @@ add_to_path() {
 
 # Download the config file
 config_file="install-config.yml"
-download_file "$config_file"
+curl -sSL "${BASE_URL}/install-config.yml" -o "$config_file"
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to download installation configuration."
+    exit 1
+fi
 
 # Prompt for installation directory
 read -p "Enter installation directory [default: $HOME/bin]: " install_dir
@@ -64,7 +68,7 @@ while IFS= read -r line; do
         if [[ $destination == "." ]]; then
             echo -n "$install_dir/$file"
         else
-            echo -n "$install_dir/combine_files/$destination/$(basename "$file")"
+            echo -n "$install_dir/$destination/$(basename "$file")"
         fi
         [[ $executable == "true" ]] && echo " (executable)" || echo ""
     fi
@@ -99,13 +103,16 @@ while IFS= read -r line; do
         if [[ $destination == "." ]]; then
             target_dir="$install_dir"
         else
-            target_dir="$install_dir/combine_files/$destination"
+            target_dir="$install_dir/$destination"
         fi
         mkdir -p "$target_dir"
 
         # Download the file
-        download_file "$file"
-        mv "$file" "$target_dir/$(basename "$file")"
+        curl -sSL "${BASE_URL}/${file}" -o "$target_dir/$(basename "$file")"
+        if [ $? -ne 0 ]; then
+            echo "Error: Failed to download $file"
+            exit 1
+        fi
 
         # Make executable if specified
         if [ "$executable" = true ]; then
