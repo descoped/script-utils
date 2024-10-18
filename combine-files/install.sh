@@ -1,29 +1,22 @@
 #!/bin/bash
 
+# Base URL for raw content
+BASE_URL="https://raw.githubusercontent.com/descoped/script-utils/refs/heads/master/combine-files"
+
+# Function to download a file
+download_file() {
+    local file="$1"
+    local url="${BASE_URL}/${file}"
+    curl -sSL "$url" -o "$file"
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to download $file"
+        exit 1
+    fi
+}
+
 # Function to parse YAML-like config
 parse_config() {
     sed 's/^- //' | sed 's/: /=/' | sed 's/^/export /'
-}
-
-# Function to show installation plan
-show_plan() {
-    echo "Installation Plan:"
-    echo "------------------"
-    while IFS= read -r line; do
-        if [[ $line == "- file:"* ]]; then
-            file=$(echo "$line" | awk '{print $3}')
-            destination=$(grep -A3 "^$line$" "$config_file" | grep "destination:" | awk '{print $2}')
-            executable=$(grep -A3 "^$line$" "$config_file" | grep "executable:" | awk '{print $2}')
-            destination=${destination:-.}
-            if [[ $destination == "." ]]; then
-                echo -n "$install_dir/$file"
-            else
-                echo -n "$install_dir/combine_files/$destination/$(basename "$file")"
-            fi
-            [[ $executable == "true" ]] && echo " (executable)" || echo ""
-        fi
-    done < "$config_file"
-    echo "------------------"
 }
 
 # Function to get the appropriate shell config file
@@ -51,19 +44,32 @@ add_to_path() {
     fi
 }
 
-# Check if config file exists
-config_file="install-config.yaml"
-if [ ! -f "$config_file" ]; then
-    echo "Error: Configuration file '$config_file' not found."
-    exit 1
-fi
+# Download the config file
+config_file="install-config.yml"
+download_file "$config_file"
 
 # Prompt for installation directory
 read -p "Enter installation directory [default: $HOME/bin]: " install_dir
 install_dir=${install_dir:-$HOME/bin}
 
 # Show installation plan
-show_plan
+echo "Installation Plan:"
+echo "------------------"
+while IFS= read -r line; do
+    if [[ $line == "- file:"* ]]; then
+        file=$(echo "$line" | awk '{print $3}')
+        destination=$(grep -A3 "^$line$" "$config_file" | grep "destination:" | awk '{print $2}')
+        executable=$(grep -A3 "^$line$" "$config_file" | grep "executable:" | awk '{print $2}')
+        destination=${destination:-.}
+        if [[ $destination == "." ]]; then
+            echo -n "$install_dir/$file"
+        else
+            echo -n "$install_dir/combine_files/$destination/$(basename "$file")"
+        fi
+        [[ $executable == "true" ]] && echo " (executable)" || echo ""
+    fi
+done < "$config_file"
+echo "------------------"
 
 # Prompt for confirmation
 read -p "Proceed with installation? [Y/n]: " confirm
@@ -97,9 +103,9 @@ while IFS= read -r line; do
         fi
         mkdir -p "$target_dir"
 
-        # Download the file (replace with actual download logic)
-        echo "Downloading $file to $target_dir/$(basename "$file")..."
-        # curl -sSL "https://raw.githubusercontent.com/username/repo/main/$file" -o "$target_dir/$(basename "$file")"
+        # Download the file
+        download_file "$file"
+        mv "$file" "$target_dir/$(basename "$file")"
 
         # Make executable if specified
         if [ "$executable" = true ]; then
@@ -113,6 +119,9 @@ done < "$config_file"
 
 # Add installation directory to PATH
 add_to_path "$install_dir"
+
+# Clean up
+rm "$config_file"
 
 echo "Installation complete!"
 echo "Please restart your terminal or run 'source $(get_shell_config)' to apply the PATH changes."
