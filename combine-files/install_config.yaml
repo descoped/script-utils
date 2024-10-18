@@ -1,4 +1,4 @@
-# Configuration file for combine_files installation
+# Install Configuration file
 # Format:
 # - file: filename
 #   executable: true/false (optional, default false)
@@ -9,3 +9,7 @@
 - file: combine_files.py
 - file: README.md
   destination: docs
+- file: stuff/f1.txt
+  destination: stuff
+- file: stuff/f2.txt
+  destination: stuff
