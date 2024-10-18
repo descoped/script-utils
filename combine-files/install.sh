@@ -22,6 +22,9 @@ get_shell_config() {
     fi
 }
 
+# Get the parent directory name
+parent_dir=$(basename "$(dirname "$REPO_URL")")
+
 # Download and parse the configuration file
 config_file="install_config.yaml"
 download_file "$config_file" "/tmp"
@@ -61,7 +64,11 @@ while IFS= read -r line; do
             ;;
         "  destination:"*)
             subdir=$(echo "$line" | cut -d' ' -f4)
-            destination="$install_dir/$subdir"
+            if [ "$subdir" = "docs" ]; then
+                destination="$install_dir/docs/$parent_dir"
+            else
+                destination="$install_dir/$subdir"
+            fi
             mkdir -p "$destination"
             ;;
         *)
