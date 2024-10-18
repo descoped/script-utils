@@ -7,7 +7,13 @@ download_file() {
     local filename=$1
     local destination=$2
     local url="$REPO_URL/$filename"
-    curl -sSL -o "$destination" "$url" || { echo "Failed to download $filename"; exit 1; }
+    echo "Downloading $url to $destination"
+    if curl -sSL -o "$destination" "$url"; then
+        echo "Successfully downloaded $filename"
+    else
+        echo "Failed to download $filename"
+        return 1
+    fi
 }
 
 get_shell_config() {
@@ -24,8 +30,15 @@ get_shell_config() {
 
 # Download and parse the configuration file
 config_file="install_config.yaml"
-download_file "$config_file" "/tmp/$config_file"
+echo "Downloading configuration file..."
+if ! download_file "$config_file" "/tmp/$config_file"; then
+    echo "Failed to download configuration file. Exiting."
+    exit 1
+fi
 config="/tmp/$config_file"
+
+echo "Configuration file contents:"
+cat "$config"
 
 # Set default installation directory
 default_dir="${INSTALL_DIR:-$HOME/bin}"
@@ -47,28 +60,37 @@ esac
 
 # Process each file in the configuration
 while IFS= read -r line; do
+    echo "Processing line: $line"
     case "$line" in
         "- file:"*)
             file=$(echo "$line" | cut -d' ' -f3)
             executable=false
             destination="$install_dir"
+            echo "File to install: $file"
             ;;
         "  executable:"*)
             executable=$(echo "$line" | cut -d' ' -f4)
+            echo "Executable: $executable"
             ;;
         "  destination:"*)
             subdir=$(echo "$line" | cut -d' ' -f4)
             destination="$install_dir/$subdir"
+            echo "Destination: $destination"
             ;;
         *)
             # If we've reached a blank line, process the previous file
             if [ -n "$file" ]; then
+                echo "Installing $file to $destination/$file"
                 mkdir -p "$(dirname "$destination/$file")"
-                download_file "$file" "$destination/$file"
-                if [ "$executable" = "true" ]; then
-                    chmod +x "$destination/$file"
+                if download_file "$file" "$destination/$file"; then
+                    if [ "$executable" = "true" ]; then
+                        chmod +x "$destination/$file"
+                        echo "Made $destination/$file executable"
+                    fi
+                    echo "Successfully installed $file to $destination/$file"
+                else
+                    echo "Failed to install $file"
                 fi
-                echo "Installed $file to $destination/$file"
                 file=""
             fi
             ;;
@@ -77,12 +99,17 @@ done < "$config"
 
 # Process the last file if there's no blank line at the end
 if [ -n "$file" ]; then
+    echo "Installing last file $file to $destination/$file"
     mkdir -p "$(dirname "$destination/$file")"
-    download_file "$file" "$destination/$file"
-    if [ "$executable" = "true" ]; then
-        chmod +x "$destination/$file"
+    if download_file "$file" "$destination/$file"; then
+        if [ "$executable" = "true" ]; then
+            chmod +x "$destination/$file"
+            echo "Made $destination/$file executable"
+        fi
+        echo "Successfully installed $file to $destination/$file"
+    else
+        echo "Failed to install $file"
     fi
-    echo "Installed $file to $destination/$file"
 fi
 
 echo "Installation complete. Scripts installed in $install_dir"
