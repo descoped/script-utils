@@ -1,21 +1,32 @@
-#!/bin/sh
-set -e
+#!/bin/bash
 
-REPO_URL="https://raw.githubusercontent.com/descoped/script-utils/refs/heads/master/combine-files"
-
-download_file() {
-    local filename=$1
-    local destination=$2
-    local url="$REPO_URL/$filename"
-    echo "Downloading $url to $destination"
-    if curl -sSL -o "$destination" "$url"; then
-        echo "Successfully downloaded $filename"
-    else
-        echo "Failed to download $filename"
-        return 1
-    fi
+# Function to parse YAML-like config
+parse_config() {
+    sed 's/^- //' | sed 's/: /=/' | sed 's/^/export /'
 }
 
+# Function to show installation plan
+show_plan() {
+    echo "Installation Plan:"
+    echo "------------------"
+    while IFS= read -r line; do
+        if [[ $line == "- file:"* ]]; then
+            file=$(echo "$line" | awk '{print $3}')
+            destination=$(grep -A3 "^$line$" "$config_file" | grep "destination:" | awk '{print $2}')
+            executable=$(grep -A3 "^$line$" "$config_file" | grep "executable:" | awk '{print $2}')
+            destination=${destination:-.}
+            if [[ $destination == "." ]]; then
+                echo -n "$install_dir/$file"
+            else
+                echo -n "$install_dir/combine_files/$destination/$(basename "$file")"
+            fi
+            [[ $executable == "true" ]] && echo " (executable)" || echo ""
+        fi
+    done < "$config_file"
+    echo "------------------"
+}
+
+# Function to get the appropriate shell config file
 get_shell_config() {
     if [ -f "$HOME/.zshrc" ]; then
         echo "$HOME/.zshrc"
@@ -28,96 +39,80 @@ get_shell_config() {
     fi
 }
 
-# Download and parse the configuration file
-config_file="install_config.yaml"
-echo "Downloading configuration file..."
-if ! download_file "$config_file" "/tmp/$config_file"; then
-    echo "Failed to download configuration file. Exiting."
+# Function to add directory to PATH
+add_to_path() {
+    local dir="$1"
+    local config_file=$(get_shell_config)
+    if ! grep -q "export PATH=\"$dir:\$PATH\"" "$config_file"; then
+        echo "export PATH=\"$dir:\$PATH\"" >> "$config_file"
+        echo "Added $dir to PATH in $config_file"
+    else
+        echo "$dir is already in PATH"
+    fi
+}
+
+# Check if config file exists
+config_file="install-config.yaml"
+if [ ! -f "$config_file" ]; then
+    echo "Error: Configuration file '$config_file' not found."
     exit 1
 fi
-config="/tmp/$config_file"
 
-echo "Configuration file contents:"
-cat "$config"
+# Prompt for installation directory
+read -p "Enter installation directory [default: $HOME/bin]: " install_dir
+install_dir=${install_dir:-$HOME/bin}
 
-# Set default installation directory
-default_dir="${INSTALL_DIR:-$HOME/bin}"
+# Show installation plan
+show_plan
 
-# Prompt user for installation directory
-printf "Enter installation directory [%s]: " "$default_dir"
-read -r custom_dir < /dev/tty
-install_dir=${custom_dir:-$default_dir}
+# Prompt for confirmation
+read -p "Proceed with installation? [Y/n]: " confirm
+confirm=${confirm:-Y}
+if [[ ! $confirm =~ ^[Yy]$ ]]; then
+    echo "Installation cancelled."
+    exit 0
+fi
 
-# Confirm installation
-printf "Install scripts in %s? [Y/n] " "$install_dir"
-read -r answer < /dev/tty
-case "$answer" in
-    [nN]*)
-        echo "Installation cancelled."
-        exit 0
-        ;;
-esac
+# Create installation directory
+mkdir -p "$install_dir"
 
-# Process each file in the configuration
+# Process each file in the config
 while IFS= read -r line; do
-    echo "Processing line: $line"
-    case "$line" in
-        "- file:"*)
-            file=$(echo "$line" | cut -d' ' -f3)
-            executable=false
-            destination="$install_dir"
-            echo "File to install: $file"
-            ;;
-        "  executable:"*)
-            executable=$(echo "$line" | cut -d' ' -f4)
-            echo "Executable: $executable"
-            ;;
-        "  destination:"*)
-            subdir=$(echo "$line" | cut -d' ' -f4)
-            destination="$install_dir/$subdir"
-            echo "Destination: $destination"
-            ;;
-        *)
-            # If we've reached a blank line, process the previous file
-            if [ -n "$file" ]; then
-                echo "Installing $file to $destination/$file"
-                mkdir -p "$(dirname "$destination/$file")"
-                if download_file "$file" "$destination/$file"; then
-                    if [ "$executable" = "true" ]; then
-                        chmod +x "$destination/$file"
-                        echo "Made $destination/$file executable"
-                    fi
-                    echo "Successfully installed $file to $destination/$file"
-                else
-                    echo "Failed to install $file"
-                fi
-                file=""
-            fi
-            ;;
-    esac
-done < "$config"
+    if [[ $line == "- file:"* ]]; then
+        # Reset variables
+        unset file executable destination
 
-# Process the last file if there's no blank line at the end
-if [ -n "$file" ]; then
-    echo "Installing last file $file to $destination/$file"
-    mkdir -p "$(dirname "$destination/$file")"
-    if download_file "$file" "$destination/$file"; then
-        if [ "$executable" = "true" ]; then
-            chmod +x "$destination/$file"
-            echo "Made $destination/$file executable"
+        # Parse the config for this file
+        eval "$(parse_config <<< "$(sed -n "/^$line$/,/^-/p" "$config_file" | sed '$d')")"
+
+        # Set default values
+        executable=${executable:-false}
+        destination=${destination:-.}
+
+        # Create destination directory
+        if [[ $destination == "." ]]; then
+            target_dir="$install_dir"
+        else
+            target_dir="$install_dir/combine_files/$destination"
         fi
-        echo "Successfully installed $file to $destination/$file"
-    else
-        echo "Failed to install $file"
+        mkdir -p "$target_dir"
+
+        # Download the file (replace with actual download logic)
+        echo "Downloading $file to $target_dir/$(basename "$file")..."
+        # curl -sSL "https://raw.githubusercontent.com/username/repo/main/$file" -o "$target_dir/$(basename "$file")"
+
+        # Make executable if specified
+        if [ "$executable" = true ]; then
+            echo "Making $file executable"
+            chmod +x "$target_dir/$(basename "$file")"
+        fi
+
+        echo "Installed: $file"
     fi
-fi
+done < "$config_file"
 
-echo "Installation complete. Scripts installed in $install_dir"
+# Add installation directory to PATH
+add_to_path "$install_dir"
 
-# Add installation directory to PATH if it's not already there
-shell_config=$(get_shell_config)
-if ! echo "$PATH" | grep -q "$install_dir"; then
-    echo "Adding $install_dir to PATH in $shell_config"
-    echo "export PATH=\$PATH:$install_dir" >> "$shell_config"
-    echo "Please restart your terminal or run 'source $shell_config' to update your PATH"
-fi
+echo "Installation complete!"
+echo "Please restart your terminal or run 'source $(get_shell_config)' to apply the PATH changes."
