@@ -16,7 +16,7 @@ download_file() {
 
 # Function to parse YAML-like config
 parse_config() {
-    sed 's/^- //' | sed 's/: /=/' | sed 's/^/export /'
+    sed -n 's/^- file: //p'
 }
 
 # Function to get the appropriate shell config file
@@ -52,6 +52,12 @@ if [ $? -ne 0 ]; then
     exit 1
 fi
 
+# Check if config file exists and has content
+if [ ! -s "$config_file" ]; then
+    echo "Error: Configuration file is empty or not found."
+    exit 1
+fi
+
 # Prompt for installation directory
 read -p "Enter installation directory [default: $HOME/bin]: " install_dir
 install_dir=${install_dir:-$HOME/bin}
@@ -59,20 +65,17 @@ install_dir=${install_dir:-$HOME/bin}
 # Show installation plan
 echo "Installation Plan:"
 echo "------------------"
-while IFS= read -r line; do
-    if [[ $line == "- file:"* ]]; then
-        file=$(echo "$line" | awk '{print $3}')
-        destination=$(grep -A3 "^$line$" "$config_file" | grep "destination:" | awk '{print $2}')
-        executable=$(grep -A3 "^$line$" "$config_file" | grep "executable:" | awk '{print $2}')
-        destination=${destination:-.}
-        if [[ $destination == "." ]]; then
-            echo -n "$install_dir/$file"
-        else
-            echo -n "$install_dir/$destination/$(basename "$file")"
-        fi
-        [[ $executable == "true" ]] && echo " (executable)" || echo ""
+while IFS= read -r file; do
+    executable=$(grep -A2 "^- file: $file$" "$config_file" | grep "executable:" | awk '{print $2}')
+    destination=$(grep -A2 "^- file: $file$" "$config_file" | grep "destination:" | awk '{print $2}')
+    destination=${destination:-.}
+    if [[ $destination == "." ]]; then
+        echo -n "$install_dir/$file"
+    else
+        echo -n "$install_dir/$destination/$(basename "$file")"
     fi
-done < "$config_file"
+    [[ $executable == "true" ]] && echo " (executable)" || echo ""
+done < <(parse_config < "$config_file")
 echo "------------------"
 
 # Prompt for confirmation
@@ -87,42 +90,37 @@ fi
 mkdir -p "$install_dir"
 
 # Process each file in the config
-while IFS= read -r line; do
-    if [[ $line == "- file:"* ]]; then
-        # Reset variables
-        unset file executable destination
+while IFS= read -r file; do
+    executable=$(grep -A2 "^- file: $file$" "$config_file" | grep "executable:" | awk '{print $2}')
+    destination=$(grep -A2 "^- file: $file$" "$config_file" | grep "destination:" | awk '{print $2}')
 
-        # Parse the config for this file
-        eval "$(parse_config <<< "$(sed -n "/^$line$/,/^-/p" "$config_file" | sed '$d')")"
+    # Set default values
+    executable=${executable:-false}
+    destination=${destination:-.}
 
-        # Set default values
-        executable=${executable:-false}
-        destination=${destination:-.}
-
-        # Create destination directory
-        if [[ $destination == "." ]]; then
-            target_dir="$install_dir"
-        else
-            target_dir="$install_dir/$destination"
-        fi
-        mkdir -p "$target_dir"
-
-        # Download the file
-        curl -sSL "${BASE_URL}/${file}" -o "$target_dir/$(basename "$file")"
-        if [ $? -ne 0 ]; then
-            echo "Error: Failed to download $file"
-            exit 1
-        fi
-
-        # Make executable if specified
-        if [ "$executable" = true ]; then
-            echo "Making $file executable"
-            chmod +x "$target_dir/$(basename "$file")"
-        fi
-
-        echo "Installed: $file"
+    # Create destination directory
+    if [[ $destination == "." ]]; then
+        target_dir="$install_dir"
+    else
+        target_dir="$install_dir/$destination"
     fi
-done < "$config_file"
+    mkdir -p "$target_dir"
+
+    # Download the file
+    curl -sSL "${BASE_URL}/${file}" -o "$target_dir/$(basename "$file")"
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to download $file"
+        exit 1
+    fi
+
+    # Make executable if specified
+    if [ "$executable" = true ]; then
+        echo "Making $file executable"
+        chmod +x "$target_dir/$(basename "$file")"
+    fi
+
+    echo "Installed: $file"
+done < <(parse_config < "$config_file")
 
 # Add installation directory to PATH
 add_to_path "$install_dir"
