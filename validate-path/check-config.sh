@@ -1,99 +1,130 @@
-#!/bin/sh
+#!/usr/bin/env bash
 
-# Check if we're running in a shell that supports advanced features
-if [ -n "$BASH_VERSION" ] || [ -n "$ZSH_VERSION" ]; then
-    USE_COLORS=true
-else
-    USE_COLORS=false
-fi
+set -eo pipefail
 
-# ANSI color codes (only if supported)
-if [ "$USE_COLORS" = true ]; then
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    YELLOW='\033[0;33m'
-    BLUE='\033[0;34m'
-    NC='\033[0m' # No Color
-else
-    RED=''
-    GREEN=''
-    YELLOW=''
-    BLUE=''
-    NC=''
-fi
+# ANSI color codes
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Function to detect if output is being piped
+is_piped() {
+    [ -t 1 ] && return 1 || return 0
+}
+
+# Function to echo with color, accounting for piped output
+echo_color() {
+    local color=$1
+    local message=$2
+    if is_piped; then
+        echo "$message"
+    else
+        echo -e "${color}${message}${NC}"
+    fi
+}
 
 # Global variables
 VERBOSE=false
+PROCESSED_FILES=()
 COMPUTED_PATH=""
 
 # Function to print verbose messages
 verbose() {
-    if [ "$VERBOSE" = true ]; then
-        printf "${BLUE}[VERBOSE] %s${NC}\n" "$1"
+    if [[ "$VERBOSE" = true ]]; then
+        echo_color "$BLUE" "[VERBOSE] $1"
     fi
 }
 
 # Function to process a file
 process_file() {
-    file=$1
-    if [ ! -f "$file" ]; then
-        printf "${YELLOW}Warning: File %s does not exist. Skipping.${NC}\n" "$file"
+    local file=$1
+    if [[ ! -f "$file" ]]; then
+        echo_color "$YELLOW" "Warning: File $file does not exist. Skipping."
         return
     fi
 
-    line_number=1
+    # Check for circular references
+    if [[ " ${PROCESSED_FILES[@]} " =~ " ${file} " ]]; then
+        echo_color "$YELLOW" "Warning: Circular reference detected for $file. Skipping to prevent infinite loop."
+        return
+    fi
 
-    while IFS= read -r line || [ -n "$line" ]; do
+    PROCESSED_FILES+=("$file")
+
+    local line_number=1
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
         # Check for source or . commands
-        case "$line" in
-            *source*|*\.*)
-                sourced_file=$(echo "$line" | sed -E 's/^[[:space:]]*(source|\.)[[:space:]]+//' | tr -d '"')
-                sourced_file=$(eval echo "$sourced_file") # Expand variables and ~
-                printf "${GREEN}Sourced file: %s (from %s:%s)${NC}\n" "$sourced_file" "$file" "$line_number"
-                # Recursively process the sourced file
-                process_file "$sourced_file"
-                ;;
-        esac
+        if [[ $line =~ ^[[:space:]]*(source|\.)[[:space:]]+(.+) ]]; then
+            sourced_file="${BASH_REMATCH[2]}"
+            sourced_file="${sourced_file//\"/}"  # Remove quotes if present
+            sourced_file="${sourced_file//\$/}"  # Remove $ if present (for cases like $HOME/.some_file)
+            # Expand ~ to $HOME
+            sourced_file="${sourced_file/#\~/$HOME}"
+            # Resolve relative paths
+            sourced_file=$(readlink -f "$sourced_file" 2>/dev/null || echo "$sourced_file")
+            echo_color "$GREEN" "Sourced file: $sourced_file (from $file:$line_number)"
+            # Recursively process the sourced file
+            process_file "$sourced_file"
+        fi
 
         # Check for PATH modifications
-        case "$line" in
-            *PATH=*|*export[[:space:]]+PATH=*)
-                printf "${GREEN}Config file: %s, Line: %s, Content: %s${NC}\n" "$file" "$line_number" "$line"
-                # Update COMPUTED_PATH (this is a simplification and might not catch all cases)
-                COMPUTED_PATH=$(echo "$line" | sed -E 's/^.*PATH=//;s/\$PATH/'"$COMPUTED_PATH"'/')
-                ;;
-        esac
+        if [[ $line =~ (PATH=|export[[:space:]]+PATH=|PATH=.*:\$PATH|PATH=.*:\${PATH}|PATH=\$PATH:.*|PATH=\${PATH}:.*) ]]; then
+            echo_color "$GREEN" "Config file: $file, Line: $line_number, Content: $line"
+            # Update COMPUTED_PATH (this is a simplification and might not catch all cases)
+            if [[ $line =~ PATH=(.+) ]]; then
+                COMPUTED_PATH="${BASH_REMATCH[1]}"
+                COMPUTED_PATH="${COMPUTED_PATH//\$PATH/$COMPUTED_PATH}"
+            fi
+        fi
 
-        line_number=$((line_number + 1))
+        ((line_number++))
     done < "$file"
 }
 
 # Function to check for duplicate PATH entries
 check_duplicates() {
-    printf "${GREEN}Checking for duplicate PATH entries:${NC}\n"
-    echo "$COMPUTED_PATH" | tr ':' '\n' | sort | uniq -d
+    local IFS=':'
+    declare -A path_entries
+    local duplicates=false
+
+    for entry in $COMPUTED_PATH; do
+        if [[ -n "${path_entries[$entry]}" ]]; then
+            echo_color "$YELLOW" "Duplicate PATH entry found: $entry"
+            duplicates=true
+        else
+            path_entries[$entry]=1
+        fi
+    done
+
+    if [[ "$duplicates" = false ]]; then
+        echo_color "$GREEN" "No duplicate PATH entries found."
+    fi
 }
 
 # Main script
 main() {
-    shell_type=$1
+    local shell_type=$1
+    local config_files=()
 
     case $shell_type in
         zsh)
-            config_files="$HOME/.zshenv $HOME/.zprofile $HOME/.zshrc $HOME/.zlogin"
+            config_files=("$HOME/.zshenv" "$HOME/.zprofile" "$HOME/.zshrc" "$HOME/.zlogin")
             ;;
         bash)
-            config_files="$HOME/.bash_profile $HOME/.bashrc $HOME/.profile"
+            config_files=("$HOME/.bash_profile" "$HOME/.bashrc" "$HOME/.profile")
             ;;
         *)
-            printf "${RED}Usage: %s [-v] [zsh|bash]${NC}\n" "$0"
+            echo_color "$RED" "Usage: $0 [-v] [zsh|bash]"
             exit 1
             ;;
     esac
 
-    for file in $config_files; do
-        if [ -f "$file" ]; then
-            printf "${GREEN}Processing %s...${NC}\n" "$file"
+    for file in "${config_files[@]}"; do
+        if [[ -f "$file" ]]; then
+            echo_color "$GREEN" "Processing $file..."
             process_file "$file"
             echo
         else
@@ -101,7 +132,7 @@ main() {
         fi
     done
 
-    printf "${GREEN}Computed PATH:${NC}\n"
+    echo_color "$GREEN" "Computed PATH:"
     echo "$COMPUTED_PATH"
     echo
 
@@ -115,7 +146,7 @@ while getopts ":v" opt; do
             VERBOSE=true
             ;;
         \? )
-            printf "${RED}Invalid Option: -%s${NC}\n" "$OPTARG" 1>&2
+            echo_color "$RED" "Invalid Option: -$OPTARG" 1>&2
             exit 1
             ;;
     esac
@@ -123,9 +154,9 @@ done
 shift $((OPTIND -1))
 
 # Run the script
-if [ $# -eq 0 ]; then
-    printf "${RED}Error: No shell type specified.${NC}\n"
-    printf "${RED}Usage: %s [-v] [zsh|bash]${NC}\n" "$0"
+if [[ $# -eq 0 ]]; then
+    echo_color "$RED" "Error: No shell type specified."
+    echo_color "$RED" "Usage: $0 [-v] [zsh|bash]"
     exit 1
 fi
 
