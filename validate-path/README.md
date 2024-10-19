@@ -30,7 +30,7 @@ Parses shell configuration files (for Zsh or Bash) to locate PATH modifications.
 ### Usage
 
 ```zsh
-curl -sSL https://raw.githubusercontent.com/descoped/script-utils/refs/heads/master/validate-path/analyze-path.sh | sh
+curl -sSL https://raw.githubusercontent.com/descoped/script-utils/refs/heads/master/validate-path/analyze-path.sh | zsh
 ```
 
 ### Output
