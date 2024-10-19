@@ -1,33 +1,60 @@
-# Validate Path
+# Path Configuration Validation
 
-A simple shell script to validate your terminal's PATH environment variable. This script checks each directory in your PATH to determine if it exists or if there are any empty entries.
+This repository contains two shell scripts to help you validate and analyze your terminal's PATH configuration.
 
-## Features
+## Scripts
 
-- Verifies the existence of each directory in your PATH
-- Detects and reports empty path entries (often caused by double colons '::' in the PATH)
-- Easy to run as a one-liner in your terminal
+1. `validate-path.sh`: Validates your PATH environment variable.
+2. `check-config.sh`: Analyzes shell configuration files for PATH modifications.
 
-## Usage
+## validate-path.sh
+
+Checks each directory in your PATH to determine if it exists and detects empty entries.
+
+### Usage
 
 ```bash
 curl -sSL https://raw.githubusercontent.com/descoped/script-utils/refs/heads/master/validate-path/validate-path.sh | sh
 ```
 
-## Output
+### Output
 
-The script will output each path in your PATH variable, along with its status:
+- `<path> exists`: Directory exists
+- `<path> does not exist`: Directory doesn't exist
+- `Empty (::) path exists`: Empty path entry detected
 
-- `<path> exists`: The directory exists
-- `<path> does not exist`: The directory does not exist
-- `Empty (::) path exists`: An empty path entry was detected (usually due to '::' in the PATH)
+## check-config.sh
 
-## Why Use This Script?
+Parses shell configuration files (for Zsh or Bash) to locate PATH modifications.
 
-1. **Security**: Identify any unexpected or potentially risky directories in your PATH.
-2. **Troubleshooting**: Quickly spot missing directories that might cause command-not-found errors.
-3. **Optimization**: Detect empty path entries that might slow down command lookups.
+### Usage
+
+For Zsh:
+```bash
+curl -sSL https://raw.githubusercontent.com/descoped/script-utils/refs/heads/master/validate-path/check-config.sh | sh -s zsh
+```
+
+For Bash:
+```bash
+curl -sSL https://raw.githubusercontent.com/descoped/script-utils/refs/heads/master/validate-path/check-config.sh | sh -s bash
+```
+
+### Output
+
+- Config file
+- Line number
+- Line content for PATH modifications
+
+## Why Use These Scripts?
+
+1. **Security**: Identify unexpected directories or modifications in PATH
+2. **Troubleshooting**: Spot configuration issues causing command-not-found errors
+3. **Optimization**: Detect redundant or inefficient PATH configurations
 
 ## Note
 
-An empty path entry (represented by '::' in the PATH) is often interpreted as the current directory. While sometimes intentional, this can pose security risks and is generally not recommended.
+Empty path entries ('::') often represent the current directory, which may pose security risks.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
