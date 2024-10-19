@@ -1,114 +1,99 @@
-#!/usr/bin/env bash
+#!/bin/sh
 
-set -eo pipefail
+# Check if we're running in a shell that supports advanced features
+if [ -n "$BASH_VERSION" ] || [ -n "$ZSH_VERSION" ]; then
+    USE_COLORS=true
+else
+    USE_COLORS=false
+fi
 
-# ANSI color codes
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+# ANSI color codes (only if supported)
+if [ "$USE_COLORS" = true ]; then
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[0;33m'
+    BLUE='\033[0;34m'
+    NC='\033[0m' # No Color
+else
+    RED=''
+    GREEN=''
+    YELLOW=''
+    BLUE=''
+    NC=''
+fi
 
 # Global variables
 VERBOSE=false
-PROCESSED_FILES=()
 COMPUTED_PATH=""
 
 # Function to print verbose messages
 verbose() {
-    if [[ "$VERBOSE" = true ]]; then
-        echo -e "${BLUE}[VERBOSE] $1${NC}"
+    if [ "$VERBOSE" = true ]; then
+        printf "${BLUE}[VERBOSE] %s${NC}\n" "$1"
     fi
 }
 
 # Function to process a file
 process_file() {
-    local file=$1
-    if [[ ! -f "$file" ]]; then
-        echo -e "${YELLOW}Warning: File $file does not exist. Skipping.${NC}"
+    file=$1
+    if [ ! -f "$file" ]; then
+        printf "${YELLOW}Warning: File %s does not exist. Skipping.${NC}\n" "$file"
         return
     fi
 
-    # Check for circular references
-    if [[ " ${PROCESSED_FILES[@]} " =~ " ${file} " ]]; then
-        echo -e "${YELLOW}Warning: Circular reference detected for $file. Skipping to prevent infinite loop.${NC}"
-        return
-    fi
+    line_number=1
 
-    PROCESSED_FILES+=("$file")
-
-    local line_number=1
-
-    while IFS= read -r line || [[ -n "$line" ]]; do
+    while IFS= read -r line || [ -n "$line" ]; do
         # Check for source or . commands
-        if [[ $line =~ ^[[:space:]]*(source|\.)[[:space:]]+(.+) ]]; then
-            sourced_file="${BASH_REMATCH[2]}"
-            sourced_file="${sourced_file//\"/}"  # Remove quotes if present
-            sourced_file="${sourced_file//\$/}"  # Remove $ if present (for cases like $HOME/.some_file)
-            # Expand ~ to $HOME
-            sourced_file="${sourced_file/#\~/$HOME}"
-            # Resolve relative paths
-            sourced_file=$(readlink -f "$sourced_file" 2>/dev/null || echo "$sourced_file")
-            echo -e "${GREEN}Sourced file: $sourced_file (from $file:$line_number)${NC}"
-            # Recursively process the sourced file
-            process_file "$sourced_file"
-        fi
+        case "$line" in
+            *source*|*\.*)
+                sourced_file=$(echo "$line" | sed -E 's/^[[:space:]]*(source|\.)[[:space:]]+//' | tr -d '"')
+                sourced_file=$(eval echo "$sourced_file") # Expand variables and ~
+                printf "${GREEN}Sourced file: %s (from %s:%s)${NC}\n" "$sourced_file" "$file" "$line_number"
+                # Recursively process the sourced file
+                process_file "$sourced_file"
+                ;;
+        esac
 
         # Check for PATH modifications
-        if [[ $line =~ (PATH=|export[[:space:]]+PATH=|PATH=.*:\$PATH|PATH=.*:\${PATH}|PATH=\$PATH:.*|PATH=\${PATH}:.*) ]]; then
-            echo -e "${GREEN}Config file: $file, Line: $line_number, Content: $line${NC}"
-            # Update COMPUTED_PATH (this is a simplification and might not catch all cases)
-            if [[ $line =~ PATH=(.+) ]]; then
-                COMPUTED_PATH="${BASH_REMATCH[1]}"
-                COMPUTED_PATH="${COMPUTED_PATH//\$PATH/$COMPUTED_PATH}"
-            fi
-        fi
+        case "$line" in
+            *PATH=*|*export[[:space:]]+PATH=*)
+                printf "${GREEN}Config file: %s, Line: %s, Content: %s${NC}\n" "$file" "$line_number" "$line"
+                # Update COMPUTED_PATH (this is a simplification and might not catch all cases)
+                COMPUTED_PATH=$(echo "$line" | sed -E 's/^.*PATH=//;s/\$PATH/'"$COMPUTED_PATH"'/')
+                ;;
+        esac
 
-        ((line_number++))
+        line_number=$((line_number + 1))
     done < "$file"
 }
 
 # Function to check for duplicate PATH entries
 check_duplicates() {
-    local IFS=':'
-    local -A path_entries
-    local duplicates=false
-
-    for entry in $COMPUTED_PATH; do
-        if [[ -n "${path_entries[$entry]}" ]]; then
-            echo -e "${YELLOW}Duplicate PATH entry found: $entry${NC}"
-            duplicates=true
-        else
-            path_entries[$entry]=1
-        fi
-    done
-
-    if [[ "$duplicates" = false ]]; then
-        echo -e "${GREEN}No duplicate PATH entries found.${NC}"
-    fi
+    printf "${GREEN}Checking for duplicate PATH entries:${NC}\n"
+    echo "$COMPUTED_PATH" | tr ':' '\n' | sort | uniq -d
 }
 
 # Main script
 main() {
-    local shell_type=$1
-    local config_files=()
+    shell_type=$1
 
     case $shell_type in
         zsh)
-            config_files=("$HOME/.zshenv" "$HOME/.zprofile" "$HOME/.zshrc" "$HOME/.zlogin")
+            config_files="$HOME/.zshenv $HOME/.zprofile $HOME/.zshrc $HOME/.zlogin"
             ;;
         bash)
-            config_files=("$HOME/.bash_profile" "$HOME/.bashrc" "$HOME/.profile")
+            config_files="$HOME/.bash_profile $HOME/.bashrc $HOME/.profile"
             ;;
         *)
-            echo -e "${RED}Usage: $0 [-v] [zsh|bash]${NC}"
+            printf "${RED}Usage: %s [-v] [zsh|bash]${NC}\n" "$0"
             exit 1
             ;;
     esac
 
-    for file in "${config_files[@]}"; do
-        if [[ -f "$file" ]]; then
-            echo -e "${GREEN}Processing $file...${NC}"
+    for file in $config_files; do
+        if [ -f "$file" ]; then
+            printf "${GREEN}Processing %s...${NC}\n" "$file"
             process_file "$file"
             echo
         else
@@ -116,7 +101,7 @@ main() {
         fi
     done
 
-    echo -e "${GREEN}Computed PATH:${NC}"
+    printf "${GREEN}Computed PATH:${NC}\n"
     echo "$COMPUTED_PATH"
     echo
 
@@ -130,7 +115,7 @@ while getopts ":v" opt; do
             VERBOSE=true
             ;;
         \? )
-            echo -e "${RED}Invalid Option: -$OPTARG${NC}" 1>&2
+            printf "${RED}Invalid Option: -%s${NC}\n" "$OPTARG" 1>&2
             exit 1
             ;;
     esac
@@ -138,9 +123,9 @@ done
 shift $((OPTIND -1))
 
 # Run the script
-if [[ $# -eq 0 ]]; then
-    echo -e "${RED}Error: No shell type specified.${NC}"
-    echo -e "${RED}Usage: $0 [-v] [zsh|bash]${NC}"
+if [ $# -eq 0 ]; then
+    printf "${RED}Error: No shell type specified.${NC}\n"
+    printf "${RED}Usage: %s [-v] [zsh|bash]${NC}\n" "$0"
     exit 1
 fi
 
