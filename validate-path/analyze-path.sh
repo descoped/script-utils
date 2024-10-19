@@ -58,7 +58,7 @@ log_message() {
     local message=$2
 
     # Exclude lines that may contain sensitive information
-    if [[ "$message" == *'PASSWORD'* || "$message" == *'TOKEN'* ]]; then
+    if [[ "$message" == *'PASSWORD'* || "$message" == *'TOKEN'* || "$message" == *'SECRET'* ]]; then
         message="[REDACTED] Sensitive information omitted."
     fi
 
@@ -148,7 +148,7 @@ process_file() {
 
     # Check if file exists
     if [[ ! -f "$file" ]]; then
-        log_message WARNING "File $file does not exist. Skipping."
+        log_message VERBOSE "File $file does not exist. Skipping."
         return
     fi
 
@@ -167,19 +167,25 @@ process_file() {
     # Process the file line by line
     while IFS= read -r line || [[ -n "$line" ]]; do
         ((line_number++))
-        log_message VERBOSE "Processing line $line_number"
 
         # Trim leading and trailing whitespace
         local trimmed_line="${line#"${line%%[![:space:]]*}"}"
         trimmed_line="${trimmed_line%"${trimmed_line##*[![:space:]]}"}"
 
-        # Skip empty lines and comments
-        if [[ -z "$trimmed_line" || "$trimmed_line" == \#* ]]; then
+        # Skip empty lines
+        if [[ -z "$trimmed_line" ]]; then
             continue
         fi
 
+        # Exclude lines that may contain sensitive information
+        if [[ "$trimmed_line" == *'PASSWORD'* || "$trimmed_line" == *'TOKEN'* || "$trimmed_line" == *'SECRET'* ]]; then
+            log_message VERBOSE "Processing line $line_number: [REDACTED] Sensitive information omitted."
+        else
+            log_message VERBOSE "Processing line $line_number: $trimmed_line"
+        fi
+
         # Process variable assignments
-        if [[ "$trimmed_line" == *'='* ]]; then
+        if [[ "$trimmed_line" == *'='* && "$trimmed_line" != *'=='* ]]; then
             process_variable_assignment "$trimmed_line"
         fi
 
@@ -237,6 +243,9 @@ process_sourced_file() {
     # Remove any surrounding quotes
     sourced_file="${sourced_file//\"/}"
     sourced_file="${sourced_file//\'/}"
+
+    # Expand variables in the sourced file path
+    sourced_file=$(expand_variables "$sourced_file")
 
     # Resolve the path of the sourced file
     sourced_file=$(resolve_path "$sourced_file" "$source_dir")
@@ -314,22 +323,52 @@ process_conditional_source() {
     # Expand variables in condition
     local condition_expanded=$(expand_variables "$condition")
 
-    log_message INFO "Evaluating condition in $source_file at line $line_number"
+    # Exclude conditions that may contain sensitive information
+    if [[ "$condition_expanded" == *'PASSWORD'* || "$condition_expanded" == *'TOKEN'* || "$condition_expanded" == *'SECRET'* ]]; then
+        log_message INFO "Evaluating condition in $source_file at line $line_number: [REDACTED]"
+    else
+        log_message INFO "Evaluating condition in $source_file at line $line_number: $condition_expanded"
+    fi
 
     # Safely evaluate the condition
-    if eval "test $condition_expanded" 2>/dev/null; then
-        log_message INFO "Condition met. Processing command."
-        if [[ "$command" == (#b)(source|.)[[:space:]]* ]]; then
-            local sourced_file="${command##${match[1]}[[:space:]]}"
-            sourced_file="${sourced_file//\'/}"
-            process_sourced_file "$sourced_file" "$source_file" "$line_number"
-        else
-            log_message VERBOSE "Processing commands inside conditional block."
-            # For simplicity, we skip executing commands inside conditionals
-        fi
+    if eval "$condition_expanded" 2>/dev/null; then
+        log_message INFO "Condition met. Processing commands inside conditional block."
+
+        # Split commands by line
+        local IFS=$'\n'
+        local commands=($command)
+        for cmd in "${commands[@]}"; do
+            cmd="${cmd#"${cmd%%[![:space:]]*}"}"
+            cmd="${cmd%"${cmd##*[![:space:]]}"}"
+
+            # Exclude sensitive commands
+            if [[ "$cmd" == *'PASSWORD'* || "$cmd" == *'TOKEN'* || "$cmd" == *'SECRET'* ]]; then
+                log_message VERBOSE "Processing command: [REDACTED] Sensitive information omitted."
+                continue
+            fi
+
+            log_message VERBOSE "Processing command: $cmd"
+
+            if [[ "$cmd" == (#b)(source|.)[[:space:]]* ]]; then
+                # Source or dot command inside conditional
+                local rest="${cmd##${match[1]}[[:space:]]}"
+                process_sourced_file "$rest" "$source_file" "$line_number"
+            elif [[ "$cmd" == 'export PATH='* || "$cmd" == 'PATH='* ]]; then
+                # PATH modification inside conditional
+                log_message INFO "PATH modification detected inside conditional: $source_file, Line: $line_number"
+                update_computed_path "$cmd" "$source_file" "$line_number"
+            else
+                # Handle other commands if necessary
+                log_message VERBOSE "Skipping command inside conditional block: $cmd"
+            fi
+        done
     else
-        log_message INFO "Condition not met. Skipping command."
-    fi  # Corrected from '}' to 'fi'
+        if [[ "$condition_expanded" == *'PASSWORD'* || "$condition_expanded" == *'TOKEN'* || "$condition_expanded" == *'SECRET'* ]]; then
+            log_message INFO "Condition not met: [REDACTED]"
+        else
+            log_message INFO "Condition not met: $condition_expanded"
+        fi
+    fi
 }
 
 # Function to update the computed PATH variables
@@ -510,6 +549,7 @@ print_help() {
 
 # Main function to orchestrate the script's operation
 main() {
+    log_message VERBOSE "Script started"
     log_message VERBOSE "Starting main function"
     local config_files=("$@")
 
@@ -580,6 +620,4 @@ done
 
 set -- "${POSITIONAL_ARGS[@]}"
 
-log_message VERBOSE "Script started"
 main "$@"
-log_message VERBOSE "Script finished"
