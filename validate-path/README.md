@@ -5,7 +5,7 @@ This repository contains two shell scripts to help you validate and analyze your
 ## Scripts
 
 1. `validate-path.sh`: Validates your PATH environment variable.
-2. `check-config.sh`: Analyzes shell configuration files for PATH modifications.
+2. `analyze-path.sh`: Analyzes shell configuration files for PATH modifications.
 
 ## validate-path.sh
 
@@ -23,20 +23,14 @@ curl -sSL https://raw.githubusercontent.com/descoped/script-utils/refs/heads/mas
 - `<path> does not exist`: Directory doesn't exist
 - `Empty (::) path exists`: Empty path entry detected
 
-## check-config.sh
+## analyze-path.sh
 
 Parses shell configuration files (for Zsh or Bash) to locate PATH modifications.
 
 ### Usage
 
-For Zsh:
-```bash
-curl -sSL https://raw.githubusercontent.com/descoped/script-utils/refs/heads/master/validate-path/check-config.sh | sh -s zsh
-```
-
-For Bash:
-```bash
-curl -sSL https://raw.githubusercontent.com/descoped/script-utils/refs/heads/master/validate-path/check-config.sh | sh -s bash
+```zsh
+curl -sSL https://raw.githubusercontent.com/descoped/script-utils/refs/heads/master/validate-path/analyze-path.sh | sh
 ```
 
 ### Output
