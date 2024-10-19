@@ -1,5 +1,14 @@
 #!/bin/bash
 
+# Access the argument passed to the script
+if [ -n "$1" ]; then
+    fragment=$1
+    echo "Parsed fragment: $fragment"
+else
+    echo "No fragment passed"
+fi
+
+
 # Base URL for raw content
 BASE_URL="https://raw.githubusercontent.com/descoped/script-utils/refs/heads/master/combine-files"
 
