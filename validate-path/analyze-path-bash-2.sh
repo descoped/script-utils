@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+#
+# Developed with Claude 3.5 Sonnet, OpenAI 4o and OpenAI 1o-preview
+#
+
 # ANSI color codes for output formatting
 readonly RED='\033[0;31m'
 readonly GREEN='\033[0;32m'

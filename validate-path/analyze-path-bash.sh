@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+#
+# Developed with Claude 3.5 Sonnet, OpenAI 4o and OpenAI 1o-preview
+#
+
 set -eo pipefail
 
 # ANSI color codes

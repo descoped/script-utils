@@ -1,5 +1,9 @@
 #!/usr/bin/env zsh
 
+#
+# Developed with Claude 3.5 Sonnet, OpenAI 4o and OpenAI 1o-preview
+#
+
 # Enable extended globbing
 setopt extendedglob
 
