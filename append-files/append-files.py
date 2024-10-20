@@ -13,8 +13,8 @@ def copy_to_clipboard_macos(text):
         print(f"Error copying to clipboard: {e}")
         return False
 
-def combine_files(input_paths):
-    combined_content = []
+def append_files(input_paths):
+    append_content = []
     
     for path_spec in input_paths:
         parts = path_spec.split(':')
@@ -30,9 +30,9 @@ def combine_files(input_paths):
                     with open(file_path, 'r') as f:
                         content = f.read()
                     
-                    combined_content.append(f"# File: {relative_path}\n\n{content}\n\n")
+                    append_content.append(f"# File: {relative_path}\n\n{content}\n\n")
     
-    return '\n'.join(combined_content)
+    return '\n'.join(append_content)
 
 @click.command()
 @click.option('--input', '-i', 'input_paths', multiple=True, required=True, 
@@ -40,22 +40,22 @@ def combine_files(input_paths):
 @click.option('--output-file', '-o', help='Name of the output file')
 @click.option('--clipboard', '-c', is_flag=True, help='Copy output to clipboard')
 def main(input_paths, output_file, clipboard):
-    """Combine files with specified extensions from given directories."""
-    combined_content = combine_files(input_paths)
+    """Append files with specified extensions from given directories."""
+    append_content = append_files(input_paths)
     
     if output_file:
         with open(output_file, 'w') as output_file_:
-            output_file_.write(combined_content)
-        click.echo(f"Combined files have been written to {output_file}")
+            output_file_.write(append_content)
+        click.echo(f"Appended files have been written to {output_file}")
     
     if clipboard:
-        if copy_to_clipboard_macos(combined_content):
-            click.echo("Combined content has been copied to clipboard")
+        if copy_to_clipboard_macos(append_content):
+            click.echo("Appended content has been copied to clipboard")
         else:
             click.echo("Failed to copy content to clipboard")
     
     if not output_file and not clipboard:
-        click.echo(combined_content)
+        click.echo(append_content)
 
 if __name__ == '__main__':
     main()

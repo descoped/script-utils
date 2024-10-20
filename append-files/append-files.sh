@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Bash script to wrap the Python file combiner script
+# Bash script to wrap the Python file appender script
 
 # Function to check if a command exists
 command_exists() {
@@ -29,7 +29,7 @@ fi
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 # Path to the Python script
-PYTHON_SCRIPT="${SCRIPT_DIR}/combine_files.py"
+PYTHON_SCRIPT="${SCRIPT_DIR}/append-files.py"
 
 # Check if the Python script exists
 if [ ! -f "$PYTHON_SCRIPT" ]; then

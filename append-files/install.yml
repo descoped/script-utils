@@ -4,8 +4,8 @@
 #   executable: true/false (optional, default false)
 #   destination: subdirectory (optional, default is root of install_dir)
 
-- file: combine_files.sh
+- file: append-files.sh
   executable: true
-- file: combine_files.py
+- file: append-files.py
 - file: README.md
   destination: docs
