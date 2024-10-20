@@ -2,6 +2,18 @@
 
 Append Files is a simple utility to append files from specified directories and file extensions into a single output file or clipboard. This tool is particularly useful for creating a single file that contains all sources, which can be helpful when you need to discuss or analyze code with Generative AI LLMs.
 
+Each appended file's content is separated by a heading in the following format:
+
+```
+# File: path/to/file.py
+
+..code..
+
+# File: path/other/file.py
+
+..code..
+```
+
 ## Installation
 
 To install `append-files.sh`, use the following command:
@@ -22,7 +34,7 @@ Use the `append-files.sh` script to append files based on the specified options.
 
 ### Example Commands
 
-Append all Python files (.py) from a directory and print the appended content to the console:
+This script appends the content of all Python files (.py) from a specified directory and prints the combined content to the console:
 
 ```bash
 ./append-files.sh -i /path/to/source:.py
