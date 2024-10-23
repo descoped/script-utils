@@ -1,12 +1,9 @@
-#!/usr/bin/env python3
 import os
-import sys
+from typing import List, Dict, Tuple
+
 import click
-import subprocess
 import pyperclip
 from tqdm import tqdm
-import mimetypes
-from typing import List
 
 default_extension = '.py'
 
@@ -25,82 +22,150 @@ def normalize_extensions(extensions: List[str]) -> List[str]:
 
 
 def is_text_file(file_path: str) -> bool:
-    mime_type, _ = mimetypes.guess_type(file_path)
-    return mime_type is None or mime_type.startswith('text/')
+    # Attempt to read the file in binary mode and check for null bytes
+    try:
+        with open(file_path, 'rb') as f:
+            chunk = f.read(1024)
+            if b'\x00' in chunk:
+                return False
+        return True
+    except Exception:
+        return False
+
+
+def read_file_content(file_path: str) -> str:
+    try:
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    except UnicodeDecodeError:
+        # Skip files that cannot be decoded as UTF-8
+        return ''
+    except Exception as e:
+        return ''
 
 
 def append_files(input_paths: List[str], exclude_dirs: List[str], exclude_files: List[str],
                  header_template: str, footer_template: str, recursive: bool,
                  default_extension: str, verbose: bool) -> str:
     append_content = []
+    all_files: List[Dict[str, str]] = []
+    paths_to_scan: List[Tuple[str, List[str]]] = []
+
+    # Exclude hidden files and directories unless explicitly specified
+    input_paths_abs = set(os.path.abspath(p.split(':', 1)[0]) for p in input_paths)
 
     for path_spec in input_paths:
-        if os.path.isfile(path_spec):
-            if any(os.path.basename(path_spec) == ef for ef in exclude_files):
-                continue
-            if not is_text_file(path_spec):
-                continue
-            try:
-                with open(path_spec, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                header = header_template.format(filename=os.path.basename(path_spec), filepath=path_spec)
-                footer = footer_template.format(filename=os.path.basename(path_spec), filepath=path_spec)
-                append_content.append(f"{header}{content}{footer}")
-                if verbose:
-                    click.echo(f"Processed file: {path_spec}")
-            except Exception as e:
-                click.echo(f"Error reading file {path_spec}: {e}", err=True)
+        parts = path_spec.split(':', 1)
+        path = parts[0]
+        extensions = []
+
+        if not os.path.exists(path):
+            click.echo(f"Error: Path '{path}' does not exist.", err=True)
+            continue
+
+        if len(parts) > 1:
+            extensions = normalize_extensions(parts[1].split(','))
         else:
-            # Handle directory with optional extensions
-            parts = path_spec.split(':')
-            directory = parts[0]
-            if len(parts) > 1:
-                extensions = normalize_extensions(parts[1].split(','))
-            else:
-                extensions = [default_extension]
+            extensions = [default_extension]
 
-            if not directory:
-                click.echo(f"Error: Directory path is empty in '{path_spec}'", err=True)
+        # Determine if the path is hidden
+        path_abspath = os.path.abspath(path)
+        path_basename = os.path.basename(path_abspath)
+        path_is_hidden = path_basename.startswith('.')
+
+        # Skip hidden paths unless explicitly specified in input_paths
+        if path_is_hidden and path_abspath not in input_paths_abs:
+            continue
+
+        if os.path.isfile(path):
+            if any(os.path.basename(path) == ef for ef in exclude_files):
                 continue
+            if not is_text_file(path):
+                continue
+            all_files.append({
+                'file_path': path,
+                'relative_path': os.path.basename(path),
+            })
+        elif os.path.isdir(path):
+            paths_to_scan.append((path, extensions))
+        else:
+            click.echo(f"Error: '{path}' is not a file or directory.", err=True)
+            continue
 
-            directory = str(directory)
+    # Collect all files from directories
+    for directory, extensions in paths_to_scan:
+        for root, dirs, files in os.walk(directory):
+            if not recursive:
+                dirs[:] = []  # Don't recurse into subdirectories
 
-            for root, dirs, files in os.walk(directory):
-                if not recursive:
-                    dirs[:] = []  # Don't recurse into subdirectories
-                # Exclude specified directories
-                dirs[:] = [d for d in dirs if not d.startswith('.') and d not in exclude_dirs]
+            # Exclude hidden directories unless explicitly specified
+            dirs[:] = [
+                d for d in dirs
+                if not d.startswith('.') and os.path.join(root, d) not in input_paths_abs and d not in exclude_dirs
+            ]
 
-                files = [f for f in files if not f.startswith('.')]
+            # Exclude specified directories
+            dirs[:] = [
+                d for d in dirs
+                if d not in exclude_dirs
+            ]
 
-                for file in tqdm(files, desc=f"Processing {root}", disable=not verbose):
-                    if any(file == ef for ef in exclude_files):
+            # Exclude hidden files
+            files = [
+                f for f in files
+                if not f.startswith('.')
+            ]
+
+            for file in files:
+                if any(file == ef for ef in exclude_files):
+                    continue
+                if any(file.lower().endswith(ext) for ext in extensions):
+                    file_path = os.path.join(root, file)
+                    if not is_text_file(file_path):
                         continue
-                    if any(file.lower().endswith(ext) for ext in extensions):
-                        file_path = os.path.join(root, file)
-                        if not is_text_file(file_path):
-                            continue
-                        relative_path = os.path.relpath(str(file_path), str(directory))
-                        try:
-                            with open(file_path, 'r', encoding='utf-8') as f:
-                                content = f.read()
-                            header = header_template.format(filename=relative_path, filepath=file_path)
-                            footer = footer_template.format(filename=relative_path, filepath=file_path)
-                            append_content.append(f"{header}{content}{footer}")
-                            if verbose:
-                                click.echo(f"Processed file: {file_path}")
-                        except Exception as e:
-                            click.echo(f"Error reading file {file_path}: {e}", err=True)
+                    relative_path = os.path.relpath(file_path, directory)
+                    all_files.append({
+                        'file_path': file_path,
+                        'relative_path': relative_path,
+                    })
+
+    if not all_files:
+        click.echo("No files to process.", err=True)
+        return ''
+
+    # Initialize progress bar
+    file_iter = all_files
+    if verbose:
+        file_iter = tqdm(
+            all_files,
+            desc="Processing files",
+            unit="file",
+            ncols=80,
+            bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]'
+        )
+
+    for file_info in file_iter:
+        file_path = file_info['file_path']
+        relative_path = file_info['relative_path']
+        content = read_file_content(file_path)
+        if content:
+            header = header_template.format(filename=relative_path, filepath=file_path)
+            footer = footer_template.format(filename=relative_path, filepath=file_path)
+            append_content.append(f"{header}{content}{footer}")
+        if verbose:
+            file_iter.set_postfix(file=os.path.basename(file_path), refresh=False)
+
     return '\n'.join(append_content)
 
 
 @click.command(context_settings={'max_content_width': 100})
 @click.option('--input', '-i', 'input_paths', multiple=True,
-              type=click.Path(exists=True),
+              type=str,
               help='Input files or directories with extensions (e.g., file.py, dir/:ext1,ext2)')
 @click.option('--output-file', '-o', help='Name of the output file', show_default=True)
 @click.option('--clipboard', '-c', is_flag=True, help='Copy output to clipboard', show_default=True)
-@click.option('--exclude-dir', '-e', 'exclude_dirs', multiple=True, default=['.git', '__pycache__'],
+@click.option('--exclude-dir', '-e', 'exclude_dirs', multiple=True,
+              default=['.git', '__pycache__', 'venv', '.venv'],
               help='Directories to exclude from processing', show_default=True)
 @click.option('--exclude-file', '-x', 'exclude_files', multiple=True, default=[],
               help='Files to exclude from processing', show_default=True)
@@ -127,6 +192,9 @@ def main(ctx, input_paths, output_file, clipboard, exclude_dirs, exclude_files, 
         input_paths, exclude_dirs, exclude_files, header_template, footer_template,
         not non_recursive, default_extension, verbose
     )
+
+    if not append_content:
+        return
 
     if output_file:
         try:
