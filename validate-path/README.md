@@ -14,7 +14,7 @@ Checks each directory in your PATH to determine if it exists and detects empty e
 ### Usage
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/descoped/script-utils/refs/heads/master/validate-path/validate-path.sh | sh
+curl -sSL https://raw.githubusercontent.com/descoped/script-utils/master/validate-path/validate-path.sh | sh
 ```
 
 ### Output
@@ -30,13 +30,13 @@ Parses shell configuration files (for Zsh or Bash) to locate PATH modifications.
 ### Usage
 
 ```zsh
-curl -sSL https://raw.githubusercontent.com/descoped/script-utils/refs/heads/master/validate-path/analyze-path.sh | zsh
+curl -sSL https://raw.githubusercontent.com/descoped/script-utils/master/validate-path/analyze-path.sh | zsh
 ```
 
 #### Verbose
 
 ```zsh
-curl -sSL https://raw.githubusercontent.com/descoped/script-utils/refs/heads/master/validate-path/analyze-path.sh | zsh -s - -v
+curl -sSL https://raw.githubusercontent.com/descoped/script-utils/master/validate-path/analyze-path.sh | zsh -s - -v
 ```
 
 ### Output

@@ -15,7 +15,7 @@ And the footer is a blank line.
 To install `append-files.sh`, use the following command:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/descoped/script-utils/master/install/install.sh | sh -s -- append-files
+curl -sSL https://raw.githubusercontent.com/descoped/script-utils/master/installer/install.sh | sh -s -- append-files
 ```
 
 Ensure that you have Python 3.7 or higher installed, along with the required Python packages (click, pyperclip, tqdm). The script will attempt to install missing packages automatically.
