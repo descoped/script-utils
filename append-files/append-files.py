@@ -1,4 +1,5 @@
 import os
+import threading
 from typing import List, Dict, Tuple
 
 import click
@@ -44,15 +45,10 @@ def read_file_content(file_path: str) -> str:
         return ''
 
 
-def append_files(input_paths: List[str], exclude_dirs: List[str], exclude_files: List[str],
-                 header_template: str, footer_template: str, recursive: bool,
-                 default_extension: str, verbose: bool) -> str:
-    append_content = []
-    all_files: List[Dict[str, str]] = []
+def scan_files(input_paths: List[str], exclude_dirs: List[str], exclude_files: List[str],
+               recursive: bool, default_extension: str, input_paths_abs: set,
+               all_files: List[Dict[str, str]]):
     paths_to_scan: List[Tuple[str, List[str]]] = []
-
-    # Exclude hidden files and directories unless explicitly specified
-    input_paths_abs = set(os.path.abspath(p.split(':', 1)[0]) for p in input_paths)
 
     for path_spec in input_paths:
         parts = path_spec.split(':', 1)
@@ -92,7 +88,7 @@ def append_files(input_paths: List[str], exclude_dirs: List[str], exclude_files:
             click.echo(f"Error: '{path}' is not a file or directory.", err=True)
             continue
 
-    # Collect all files from directories
+    # Scan directories and collect files
     for directory, extensions in paths_to_scan:
         for root, dirs, files in os.walk(directory):
             if not recursive:
@@ -101,9 +97,8 @@ def append_files(input_paths: List[str], exclude_dirs: List[str], exclude_files:
             # Exclude hidden directories unless explicitly specified
             dirs[:] = [
                 d for d in dirs
-                if not d.startswith('.') and os.path.join(root, d) not in input_paths_abs and d not in exclude_dirs
+                if not d.startswith('.') or os.path.join(root, d) in input_paths_abs
             ]
-
             # Exclude specified directories
             dirs[:] = [
                 d for d in dirs
@@ -129,33 +124,25 @@ def append_files(input_paths: List[str], exclude_dirs: List[str], exclude_files:
                         'relative_path': relative_path,
                     })
 
-    if not all_files:
-        click.echo("No files to process.", err=True)
-        return ''
 
-    # Initialize progress bar
-    file_iter = all_files
-    if verbose:
-        file_iter = tqdm(
-            all_files,
-            desc="Processing files",
-            unit="file",
-            ncols=80,
-            bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]'
-        )
-
-    for file_info in file_iter:
+def consumer(all_files: List[Dict[str, str]], append_content_list: List[str],
+             header_template: str, footer_template: str,
+             progress_bar):
+    while True:
+        try:
+            file_info = all_files.pop()
+        except IndexError:
+            break  # No more files to process
         file_path = file_info['file_path']
         relative_path = file_info['relative_path']
         content = read_file_content(file_path)
         if content:
             header = header_template.format(filename=relative_path, filepath=file_path)
             footer = footer_template.format(filename=relative_path, filepath=file_path)
-            append_content.append(f"{header}{content}{footer}")
-        if verbose:
-            file_iter.set_postfix(file=os.path.basename(file_path), refresh=False)
-
-    return '\n'.join(append_content)
+            append_content_list.append(f"{header}{content}{footer}")
+        if progress_bar is not None:
+            progress_bar.set_postfix(file=os.path.basename(file_path), refresh=False)
+            progress_bar.update(1)
 
 
 @click.command(context_settings={'max_content_width': 100})
@@ -188,13 +175,61 @@ def main(ctx, input_paths, output_file, clipboard, exclude_dirs, exclude_files, 
         click.echo(ctx.get_help())
         ctx.exit()
 
-    append_content = append_files(
-        input_paths, exclude_dirs, exclude_files, header_template, footer_template,
-        not non_recursive, default_extension, verbose
+    recursive = not non_recursive
+    input_paths_abs = set(os.path.abspath(p.split(':', 1)[0]) for p in input_paths)
+
+    all_files: List[Dict[str, str]] = []
+    append_content_list: List[str] = []
+
+    if verbose:
+        click.echo("Scanning files...")
+
+    # Scan files
+    scan_files(
+        input_paths, exclude_dirs, exclude_files, recursive,
+        default_extension, input_paths_abs, all_files
     )
 
-    if not append_content:
+    total_files = len(all_files)
+    if total_files == 0:
+        click.echo("No files to process.", err=True)
         return
+
+    # Initialize processing progress bar
+    progress_bar = None
+    if verbose:
+        progress_bar = tqdm(
+            total=total_files,
+            desc="Processing files",
+            unit="file",
+            ncols=80,
+            bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} files [{elapsed}<{remaining}]',
+        )
+
+    # Start consumer threads
+    num_consumers = 4  # Adjust based on your system
+    consumer_threads = []
+    for _ in range(num_consumers):
+        t = threading.Thread(
+            target=consumer,
+            args=(all_files, append_content_list, header_template, footer_template, progress_bar),
+            daemon=True
+        )
+        t.start()
+        consumer_threads.append(t)
+
+    # Wait for all consumers to finish
+    for t in consumer_threads:
+        t.join()
+
+    if progress_bar is not None:
+        progress_bar.close()
+
+    if not append_content_list:
+        click.echo("No files processed.", err=True)
+        return
+
+    append_content = '\n'.join(append_content_list)
 
     if output_file:
         try:
