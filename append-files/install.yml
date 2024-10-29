@@ -2,10 +2,12 @@
 # Format:
 # - file: filename
 #   executable: true/false (optional, default false)
+#   create-symlink: true/false (will create a symlink file named filename without .ext)
 #   destination: subdirectory (optional, default is root of install_dir)
 
 - file: append-files.sh
   executable: true
+  create-symlink: true
 - file: append-files.py
 - file: README.md
   destination: docs

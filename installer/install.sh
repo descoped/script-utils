@@ -2,266 +2,240 @@
 
 set -e
 
-# ANSI color codes for log levels
-GREEN="\033[1;32m"
-YELLOW="\033[1;33m"
-BLUE="\033[0;34m"
-RED="\033[1;31m"
-RESET="\033[0m"
+# ANSI color codes
+readonly GREEN="\033[1;32m"
+readonly YELLOW="\033[1;33m"
+readonly BLUE="\033[0;34m"
+readonly RED="\033[1;31m"
+readonly RESET="\033[0m"
 
-# Logging function with color coding based on log level
-log_message() {
-    local log_level="$1"
+# Script constants
+readonly DEFAULT_INSTALL_DIR="$HOME/bin"
+readonly GITHUB_RAW_URL="https://raw.githubusercontent.com/descoped/script-utils/master"
+
+# Logging function
+log() {
+    local level="$1"
     local message="$2"
-    case "$log_level" in
-        INFO)
-            printf "${GREEN}[INFO]${RESET} %s\n" "$message"
-            ;;
-        WARNING)
-            printf "${YELLOW}[WARNING]${RESET} %s\n" "$message"
-            ;;
-        DEBUG)
-            printf "${BLUE}[DEBUG]${RESET} %s\n" "$message"
-            ;;
-        ERROR)
-            printf "${RED}[ERROR]${RESET} %s\n" "$message"
-            ;;
-        *)
-            printf "[LOG] %s\n" "$message"
-            ;;
+    case "$level" in
+        INFO)    printf "${GREEN}[INFO]${RESET} %s\n" "$message" ;;
+        WARN)    printf "${YELLOW}[WARNING]${RESET} %s\n" "$message" ;;
+        DEBUG)   printf "${BLUE}[DEBUG]${RESET} %s\n" "$message" ;;
+        ERROR)   printf "${RED}[ERROR]${RESET} %s\n" "$message" ;;
+        *)       printf "[LOG] %s\n" "$message" ;;
     esac
 }
 
-# Function to download and install file
-download_and_install_file() {
-    local file="$1"
-    local target="$2"
-    local base_url="$3"
+# Download file with retry
+download_file() {
+    local url="$1"
+    local output="$2"
+    local attempts=3
 
-    local file_url="$base_url/$file"
-    mkdir -p "$(dirname "$target")"
-
-    log_message DEBUG "Downloading $file from $file_url"
-    curl -sSL "$file_url" -o "$target"
-
-    if [ $? -ne 0 ]; then
-        log_message ERROR "Failed to download $file_url"
-        exit 1
-    fi
-
-    log_message INFO "Installed: $target"
+    while [ $attempts -gt 0 ]; do
+        if curl -sSL "$url" -o "$output" 2>/dev/null; then
+            return 0
+        fi
+        attempts=$((attempts - 1))
+        [ $attempts -gt 0 ] && sleep 1
+    done
+    return 1
 }
 
-# Function to prompt for a custom installation directory
-prompt_for_install_dir() {
-    local default_install_dir="$HOME/bin"
+# Get installation directory
+get_install_dir() {
     local dir
-    read -p "Enter installation directory [$default_install_dir]: " dir </dev/tty
-    echo "${dir:-$default_install_dir}"
+    read -p "Enter installation directory [$DEFAULT_INSTALL_DIR]: " dir </dev/tty
+    echo "${dir:-$DEFAULT_INSTALL_DIR}"
 }
 
-# Function to display the installation plan
+# Display installation plan from YAML
 display_installation_plan() {
-    local install_dir="$1"
-    local project_name="$2"
-    local config_file="$3"
-    local base_url="https://raw.githubusercontent.com/descoped/script-utils/master/$project_name"
+    local config_file="$1"
+    local install_dir="$2"
+    local module_name="$3"
+    local plan_file="$4"
+    local found_files=false
 
-    log_message INFO "Installation Plan:"
-    printf "%s\n" "------------------"
-    log_message INFO "Installing to: $install_dir"
-    printf "\n"
+    # Clear plan file
+    > "$plan_file"
 
-    local files_found=false
-    local lines=()
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        lines+=("$line")
+    printf "\nInstallation Plan:\n"
+    printf "=================\n"
+    printf "Install directory: %s\n\n" "$install_dir"
+    printf "Files to install:\n"
+
+    local current_file=""
+    local current_executable=false
+    local current_destination=""
+    local current_symlink=false
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        # Skip comments and empty lines
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "${line// }" ]] && continue
+
+        if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*file:[[:space:]]*(.+)$ ]]; then
+            # Process previous file if exists
+            if [ -n "$current_file" ]; then
+                local target
+                if [ -n "$current_destination" ]; then
+                    target="$install_dir/.$module_name/$current_destination/${current_file##*/}"
+                else
+                    target="$install_dir/${current_file##*/}"
+                fi
+
+                printf "  • Source: %s\n" "$current_file"
+                printf "    Target: %s\n" "$target"
+                [ "$current_executable" = true ] && printf "    Executable: yes\n"
+                if [ "$current_symlink" = true ]; then
+                    local symlink_name="${target%.*}"
+                    printf "    Symlink: %s\n" "$symlink_name"
+                fi
+                printf "\n"
+
+                echo "$current_file|$target|$current_executable|$current_symlink" >> "$plan_file"
+            fi
+
+            # Start new file
+            current_file="${BASH_REMATCH[1]}"
+            current_executable=false
+            current_destination=""
+            current_symlink=false
+            found_files=true
+
+        elif [[ "$line" =~ ^[[:space:]]*executable:[[:space:]]*true[[:space:]]*$ ]]; then
+            current_executable=true
+        elif [[ "$line" =~ ^[[:space:]]*create-symlink:[[:space:]]*true[[:space:]]*$ ]]; then
+            current_symlink=true
+        elif [[ "$line" =~ ^[[:space:]]*destination:[[:space:]]*(.+)[[:space:]]*$ ]]; then
+            current_destination="${BASH_REMATCH[1]}"
+        fi
     done < "$config_file"
 
-    local total_lines=${#lines[@]}
-    local i=0
-
-    while [ $i -lt $total_lines ]; do
-        line="${lines[$i]}"
-        if [[ $line == "- file:"* ]]; then
-            files_found=true
-            local file=$(echo "$line" | awk '{print $3}')
-            local destination=""
-            local executable=false
-
-            ((i++))
-            while [ $i -lt $total_lines ]; do
-                next_line="${lines[$i]}"
-                if [[ $next_line == "- file:"* ]]; then
-                    ((i--))
-                    break
-                fi
-                if [[ $next_line == *"executable: true"* ]]; then
-                    executable=true
-                fi
-                if [[ $next_line == *"destination:"* ]]; then
-                    destination=$(echo "$next_line" | awk '{print $2}')
-                fi
-                ((i++))
-            done
-
-            local target
-            if [ -n "$destination" ]; then
-                target="$install_dir/$project_name/$destination/${file##*/}"
-            elif [[ "$file" == */* ]]; then
-                target="$install_dir/$project_name/$file"
-            else
-                target="$install_dir/$file"
-            fi
-
-            log_message INFO "  $file -> $target"
-            if [ "$executable" = true ]; then
-                log_message INFO "    (marked as executable)"
-            fi
+    # Process the last file
+    if [ -n "$current_file" ]; then
+        local target
+        if [ -n "$current_destination" ]; then
+            target="$install_dir/.$module_name/$current_destination/${current_file##*/}"
+        else
+            target="$install_dir/${current_file##*/}"
         fi
-        ((i++))
-    done
 
-    if [ "$files_found" = false ]; then
-        log_message ERROR "No files found in configuration."
+        printf "  • Source: %s\n" "$current_file"
+        printf "    Target: %s\n" "$target"
+        [ "$current_executable" = true ] && printf "    Executable: yes\n"
+        if [ "$current_symlink" = true ]; then
+            local symlink_name="${target%.*}"
+            printf "    Symlink: %s\n" "$symlink_name"
+        fi
+        printf "\n"
+
+        echo "$current_file|$target|$current_executable|$current_symlink" >> "$plan_file"
+    fi
+
+    if [ "$found_files" = false ]; then
+        log ERROR "No files found in configuration"
         return 1
     fi
 
-    printf "\n"
     return 0
 }
 
-# Function to install files based on configuration
+# Install files according to plan
 install_files() {
-    local install_dir="$1"
-    local project_name="$2"
-    local config_file="$3"
-    local base_url="https://raw.githubusercontent.com/descoped/script-utils/master/$project_name"
+    local plan_file="$1"
+    local module_name="$2"
+    local base_url="$GITHUB_RAW_URL/$module_name"
 
-    log_message INFO "Installing files..."
+    while IFS='|' read -r file target executable symlink; do
+        [ -z "$file" ] && continue
 
-    local files_installed=false
-    local lines=()
-    while IFS= read -r line || [[ -n "$line" ]]; do
-        lines+=("$line")
-    done < "$config_file"
+        # Create target directory
+        mkdir -p "$(dirname "$target")"
 
-    local total_lines=${#lines[@]}
-    local i=0
-
-    while [ $i -lt $total_lines ]; do
-        line="${lines[$i]}"
-        if [[ $line == "- file:"* ]]; then
-            local file=$(echo "$line" | awk '{print $3}')
-            local destination=""
-            local executable=false
-
-            ((i++))
-            while [ $i -lt $total_lines ]; do
-                next_line="${lines[$i]}"
-                if [[ $next_line == "- file:"* ]]; then
-                    ((i--))
-                    break
-                fi
-                if [[ $next_line == *"executable: true"* ]]; then
-                    executable=true
-                fi
-                if [[ $next_line == *"destination:"* ]]; then
-                    destination=$(echo "$next_line" | awk '{print $2}')
-                fi
-                ((i++))
-            done
-
-            local target
-            if [ -n "$destination" ]; then
-                target="$install_dir/$project_name/$destination/${file##*/}"
-            elif [[ "$file" == */* ]]; then
-                target="$install_dir/$project_name/$file"
-            else
-                target="$install_dir/$file"
-            fi
-
-            # Download and install the file
-            download_and_install_file "$file" "$target" "$base_url"
-
-            # Set executable permissions if required
-            if [ "$executable" = true ]; then
-                chmod +x "$target"
-                log_message INFO "  (marked as executable)"
-            fi
-
-            files_installed=true
+        log INFO "Installing: $file"
+        if ! download_file "$base_url/$file" "$target"; then
+            log ERROR "Failed to download: $file"
+            return 1
         fi
-        ((i++))
-    done
 
-    if [ "$files_installed" = false ]; then
-        log_message ERROR "No files were installed."
-        return 1
-    fi
+        if [ "$executable" = "true" ]; then
+            chmod +x "$target"
+            log INFO "Made executable: $target"
+        fi
+
+        if [ "$symlink" = "true" ]; then
+            local symlink_name="${target%.*}"
+            # Remove existing symlink if it exists
+            [ -L "$symlink_name" ] && rm "$symlink_name"
+            # Create new symlink
+            ln -s "$target" "$symlink_name"
+            log INFO "Created symlink: $symlink_name -> $target"
+        fi
+
+        log INFO "Installed to: $target"
+    done < "$plan_file"
 
     return 0
 }
 
-# Main script
+# Main execution
 main() {
-    local project_name="$1"
-    local config_url
-    local default_install_dir="$HOME/bin"
+    local module_name="$1"
 
-    if [ -z "$project_name" ]; then
-        log_message ERROR "Project name not provided."
-        echo "Usage: $0 <project_name>"
+    if [ -z "$module_name" ]; then
+        log ERROR "Module name not provided"
+        echo "Usage: $0 <module_name>"
         exit 1
     fi
 
-    config_url="https://raw.githubusercontent.com/descoped/script-utils/master/$project_name/install.yml"
-
-    # Download configuration file
-    local config_file
+    # Create temporary files
+    local config_file plan_file
     config_file=$(mktemp)
-    log_message INFO "Downloading configuration from $config_url"
-    curl -sSL "$config_url" -o "$config_file"
+    plan_file=$(mktemp)
+    trap 'rm -f "$config_file" "$plan_file"' EXIT
+
+    # Download configuration
+    local config_url="$GITHUB_RAW_URL/$module_name/install.yml"
+    log INFO "Downloading configuration from $config_url"
+
+    if ! download_file "$config_url" "$config_file"; then
+        log ERROR "Failed to download configuration"
+        exit 1
+    fi
 
     if [ ! -s "$config_file" ]; then
-        log_message ERROR "The configuration file could not be downloaded or is empty."
-        rm -f "$config_file"
+        log ERROR "Configuration file is empty"
         exit 1
     fi
 
-    log_message DEBUG "Configuration file downloaded successfully."
-
-    # Prompt for custom installation directory
+    # Get installation directory
     local install_dir
-    install_dir=$(prompt_for_install_dir)
-    log_message DEBUG "Install directory set to $install_dir"
+    install_dir=$(get_install_dir)
 
     # Display installation plan
-    if ! display_installation_plan "$install_dir" "$project_name" "$config_file"; then
-        rm -f "$config_file"
+    if ! display_installation_plan "$config_file" "$install_dir" "$module_name" "$plan_file"; then
         exit 1
     fi
 
-    # Prompt for confirmation before proceeding
-    local confirm
+    # Confirm installation
     read -p "Proceed with installation? [Y/n] " confirm </dev/tty
     confirm=${confirm:-Y}
     if [[ ! $confirm =~ ^[Yy]$ ]]; then
-        log_message WARNING "Installation cancelled."
-        rm -f "$config_file"
+        log WARN "Installation cancelled"
         exit 0
     fi
 
-    # Install the files
-    if ! install_files "$install_dir" "$project_name" "$config_file"; then
-        log_message ERROR "Installation failed."
-        rm -f "$config_file"
+    printf "\n"
+
+    # Perform installation
+    if install_files "$plan_file" "$module_name"; then
+        log INFO "Installation completed successfully"
+    else
+        log ERROR "Installation failed"
         exit 1
     fi
-
-    # Clean up
-    rm -f "$config_file"
-    log_message INFO "Installation completed."
 }
 
 main "$@"
