@@ -167,8 +167,16 @@ process_with_awk() {
 # 1. AWS Access Keys (AKIA...)
 do_replacement "AKIA[A-Z0-9]\{16\}" "[AWS-KEY-REDACTED]" "$TEMP_FILE" "AWS_SECRETS"
 
-# 2. AWS Secret Keys - they typically contain alphanumeric, +, /, and = characters
-process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "AWS Secret Key" "AWS_SECRETS" "aws_secret_access_key[ ]*=[ ]*[\"'][A-Za-z0-9+/=]\{40\}[\"']" "aws_secret_access_key = \"[AWS-SECRET-REDACTED]\""
+# General catch-all for timestamped log entries with key-value pairs
+process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "Timestamped Logs" "API_SECRETS" "[0-9]\{4\}-[0-9]\{2\}-[0-9]\{2\}T[0-9:.]\+Z [A-Z_]*(SECRET|KEY|TOKEN|AUTH|CRED|PASS|SIGN|IDENTITY|MSI)[A-Z_]*=[A-Za-z0-9/+._=-]*" "&=[SENSITIVE-VALUE-REDACTED]"
+
+# Additional catch-all for specific cloud provider API keys and secrets
+process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "Cloud API Keys" "API_SECRETS" "AZURE.*_KEY_[0-9]=[A-Za-z0-9/+._=-]*" "&=[API-KEY-REDACTED]"
+process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "Cloud API Keys Quoted" "API_SECRETS" "AZURE.*_KEY_[0-9]=\"[^\"]*\"" "&=\"[API-KEY-REDACTED]\""
+
+# 2. AWS Secret Keys - Update pattern to catch more variations
+process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "AWS Secret Key" "AWS_SECRETS" "[Aa][Ww][Ss]_[Ss][Ee][Cc][Rr][Ee][Tt]_[Aa][Cc][Cc][Ee][Ss][Ss]_[Kk][Ee][Yy][ ]*=[ ]*[\"']?[A-Za-z0-9+/=]\{20,\}[\"']?" "aws_secret_access_key = \"[AWS-SECRET-REDACTED]\""
+process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "AWS Secret Key in JSON" "AWS_SECRETS" "\"secret_key\"[ ]*:[ ]*\"[A-Za-z0-9+/=]\{20,\}\"" "\"secret_key\": \"[AWS-SECRET-REDACTED]\""
 
 # 3. AWS Session tokens - relatively long strings, often in base64
 process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "AWS Session Token" "AWS_SECRETS" "aws_session_token[ ]*=[ ]*[\"'][A-Za-z0-9+/=]\{100,\}[\"']" "aws_session_token = \"[AWS-SESSION-TOKEN-REDACTED]\""
@@ -176,8 +184,20 @@ process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "AWS Session Token" "AWS_SECRETS"
 # 4. Azure Connection String - focus on the AccountKey part
 process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "Azure Connection String" "AZURE_SECRETS" "AccountKey=[A-Za-z0-9+/=]\{50,\}" "AccountKey=[AZURE-KEY-REDACTED]"
 
-# 5. Azure SAS Tokens
-process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "Azure SAS Token" "AZURE_SECRETS" "sig=[A-Za-z0-9%+/=]\{40,\}" "sig=[AZURE-SAS-SIGNATURE-REDACTED]"
+# 5. Azure SAS Tokens - improve the pattern to avoid double redaction
+process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "Azure SAS Token" "AZURE_SECRETS" "sig=[A-Za-z0-9%+/=]\{30,\}" "sig=[AZURE-SAS-SIGNATURE-REDACTED]"
+process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "SAS Token Env Var" "AZURE_SECRETS" "AZURE_STORAGE_SAS_TOKEN=\"[^\"]*\"" "AZURE_STORAGE_SAS_TOKEN=\"[SAS-TOKEN-REDACTED]\""
+
+# Environment variables containing sensitive keywords - more comprehensive patterns
+process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "Secret Env Vars" "API_SECRETS" "[A-Z_]*(SECRET|KEY|TOKEN|AUTH|CRED|SIGN|IDENTITY|MSI)[A-Z_]*=[A-Za-z0-9/+._=-]*" "&=[SECRET-REDACTED]"
+process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "Secret Env Vars Quoted" "API_SECRETS" "[A-Z_]*(SECRET|KEY|TOKEN|AUTH|CRED|SIGN|IDENTITY|MSI)[A-Z_]*=\"[^\"]*\"" "&=\"[SECRET-REDACTED]\""
+
+# Fix ordering - process specific patterns first, then generic ones to prevent double redaction
+# This section moved here to ensure it runs after specific patterns
+
+# Special handling for API keys (common in Azure and cloud services)
+process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "API Keys" "API_SECRETS" "[A-Z_]*API_KEY[A-Z0-9_]*=[A-Za-z0-9/+._=-]*" "&=[API-KEY-REDACTED]"
+process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "Azure API Keys" "API_SECRETS" "(AZURE|APPSETTING).*API_KEY.*=[A-Za-z0-9/+._=-]*" "&=[API-KEY-REDACTED]"
 
 # 6. Generic API Keys - various formats (updated to handle more patterns)
 process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "API Key" "API_SECRETS" "API_KEY[ ]*=[ ]*[\"']?[A-Za-z0-9]\{20,\}[\"']?" "API_KEY = \"[API-KEY-REDACTED]\""
@@ -186,6 +206,14 @@ process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "Generic API Key" "API_SECRETS" "
 
 # 7. Generic Auth Tokens - Updated to handle tokens with periods and without quotes
 process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "Auth Token" "API_SECRETS" "AUTH_TOKEN[ ]*=[ ]*[\"']?[A-Za-z0-9._-]\{10,\}[\"']?" "AUTH_TOKEN = \"[AUTH-TOKEN-REDACTED]\""
+
+# Additional patterns for token formats seen in the wild
+process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "Generic Long Token" "API_SECRETS" "[A-Za-z0-9]\{20,\}[a-zA-Z0-9]\{10,\}" "[TOKEN-REDACTED]"
+process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "Auth Token in Text" "API_SECRETS" "token: [A-Za-z0-9._-]\{10,\}" "token: [AUTH-TOKEN-REDACTED]"
+
+# Additional patterns for identity tokens and signing keys
+process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "Identity Tokens" "API_SECRETS" "(IDENTITY_HEADER|MSI_SECRET)[ ]*=[ ]*[A-Za-z0-9_-]\{10,\}" "&=[IDENTITY-TOKEN-REDACTED]"
+process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "Signing Keys" "API_SECRETS" "[A-Za-z0-9_]*(SIGNING|ENCRYPTION)_KEY[ ]*=[ ]*[A-Za-z0-9]\{32,\}" "&=[SIGNING-KEY-REDACTED]"
 
 # 8. Generic tokens pattern - handles tokens with dot patterns but avoids non-secret text
 process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "Generic Token" "API_SECRETS" "\\b\\.[A-Za-z0-9_-]\{10,\}\\.[A-Za-z0-9_-]\{10,\}\\b" "[TOKEN-REDACTED]"
@@ -199,12 +227,14 @@ process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "Authorization Token" "API_SECRET
 # 11. JWT Tokens - typically three base64 sections separated by dots
 process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "JWT Token" "JWT_SECRETS" "eyJ[A-Za-z0-9_-]\{10,\}\\.[A-Za-z0-9_-]\{10,\}\\.[A-Za-z0-9_-]\{10,\}" "[JWT-TOKEN-REDACTED]"
 
-# 12. Database passwords in connection strings
-process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "Database Password" "PASSWORD_SECRETS" "Password=[^;\"']\{8,\}" "Password=[DB-PASSWORD-REDACTED]"
+# 12. Database passwords in connection strings - prevent double redaction
+process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "Database Password" "PASSWORD_SECRETS" "Password=[^;\"']+;" "Password=[DB-PASSWORD-REDACTED];"
 
-# 13. Generic passwords - including JSON format
-process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "Password" "PASSWORD_SECRETS" "password[ ]*=[ ]*[\"'][^\"';]\{8,\}[\"']" "password = \"[PASSWORD-REDACTED]\""
-process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "JSON Password" "PASSWORD_SECRETS" "\"password\"[ ]*:[ ]*\"[^\"']\{8,\}\"" "\"password\": \"[PASSWORD-REDACTED]\""
+# 13. Generic passwords - including JSON format and environment variables
+process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "Password" "PASSWORD_SECRETS" "password[ ]*=[ ]*\"[^\"]*\"" "password = \"[PASSWORD-REDACTED]\""
+process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "JSON Password" "PASSWORD_SECRETS" "\"password\"[ ]*:[ ]*\"[^\"]*\"" "\"password\": \"[PASSWORD-REDACTED]\""
+process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "Password Env Var" "PASSWORD_SECRETS" "[A-Za-z0-9_]*[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd][A-Za-z0-9_]*=[A-Za-z0-9/+._=-]*" "&=[PASSWORD-REDACTED]"
+process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "Password Env Var Quoted" "PASSWORD_SECRETS" "[A-Za-z0-9_]*[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd][A-Za-z0-9_]*=\"[^\"]*\"" "&=\"[PASSWORD-REDACTED]\""
 
 # 14. GitHub tokens
 process_with_awk "$TEMP_FILE" "$TEMP_FILE.tmp" "GitHub Token" "GITHUB_SECRETS" "ghp_[A-Za-z0-9]\{36\}" "[GITHUB-TOKEN-REDACTED]"
