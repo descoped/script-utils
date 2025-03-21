@@ -7,6 +7,8 @@ exposing API keys, passwords, tokens, or other secrets.
 Each detected secret is replaced with a redacted placeholder, making it safe to share the content with support teams, in
 public forums, or with AI assistants like Claude.
 
+> **Note**: This script is written for macOS Terminal and is not tested for Linux or Windows.
+
 ## Installation
 
 To install `secrets-sanitizer.sh`, use the following command:
