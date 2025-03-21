@@ -10,52 +10,62 @@ from typing import Dict, Tuple
 
 # Secret patterns with their redaction markers
 SECRET_PATTERNS = [
-    # AWS
+    # Process quoted values first
+    # 1. API Keys (quoted)
+    (r'([A-Za-z0-9_-]*(?:API[_-]KEY|APIKEY)[A-Za-z0-9_-]*)="([^"]*)"', r'\1="[API-KEY]"'),
+    (r'([A-Za-z0-9_-]*(?:API[_-]KEY|APIKEY)[A-Za-z0-9_-]*)=\'([^\']*)\'', r'\1=\'[API-KEY]\''),
+
+    # 2. Passwords (quoted)
+    (r'([A-Za-z0-9_-]*[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd][A-Za-z0-9_-]*)="([^"]*)"', r'\1="[PASSWORD]"'),
+    (r'([A-Za-z0-9_-]*[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd][A-Za-z0-9_-]*)=\'([^\']*)\'', r'\1=\'[PASSWORD]\''),
+
+    # 3. Generic secrets (quoted)
+    (r'([A-Za-z0-9_-]*(?:SECRET|KEY|TOKEN|AUTH|CRED|SIGN|IDENTITY|MSI)[A-Za-z0-9_-]*)="([^"]*)"', r'\1="[SECRET]"'),
+    (
+        r'([A-Za-z0-9_-]*(?:SECRET|KEY|TOKEN|AUTH|CRED|SIGN|IDENTITY|MSI)[A-Za-z0-9_-]*)=\'([^\']*)\'',
+        r'\1=\'[SECRET]\''),
+
+    # 4. AWS specific
     (r'AKIA[A-Z0-9]{16}', '[AWS-KEY]'),
-    (r'aws_secret_access_key\s*=\s*["\']?[A-Za-z0-9+/=]{20,}["\']?', r'aws_secret_access_key = "[AWS-SECRET]"'),
-    (r'"secret_key"\s*:\s*"[A-Za-z0-9+/=]{20,}"', r'"secret_key": "[AWS-SECRET]"'),
-    (r'aws_session_token\s*=\s*["\'][A-Za-z0-9+/=]{100,}["\']', r'aws_session_token = "[AWS-SESSION-TOKEN]"'),
+    (r'aws_secret_access_key\s*=\s*["\']?([A-Za-z0-9+/=]{20,})["\']?', r'aws_secret_access_key = "[AWS-SECRET]"'),
+    (r'"secret_key"\s*:\s*"([A-Za-z0-9+/=]{20,})"', r'"secret_key": "[AWS-SECRET]"'),
+    (r'aws_session_token\s*=\s*["\']([A-Za-z0-9+/=]{100,})["\']', r'aws_session_token = "[AWS-SESSION-TOKEN]"'),
 
-    # Azure
-    (r'AccountKey=[A-Za-z0-9+/=]{50,}', r'AccountKey=[AZURE-KEY]'),
-    (r'sig=[A-Za-z0-9%+/=]{30,}', r'sig=[AZURE-SAS]'),
-    (r'AZURE_STORAGE_SAS_TOKEN="[^"]*"', r'AZURE_STORAGE_SAS_TOKEN="[AZURE-SAS]"'),
-    (r'(AZURE_API_KEY(?:_\d+)?)=([^=\s\[\]]+)', r'\1=[API-KEY]'),
+    # 5. Azure specific
+    (r'AccountKey=([A-Za-z0-9+/=]{50,})', r'AccountKey=[AZURE-KEY]'),
+    (r'sig=([A-Za-z0-9%+/=]{30,})', r'sig=[AZURE-SAS]'),
+    (r'AZURE_STORAGE_SAS_TOKEN="([^"]*)"', r'AZURE_STORAGE_SAS_TOKEN="[AZURE-SAS]"'),
+    (r'AZURE_OPENAI_API_KEY=([^\n\r]*)', r'AZURE_OPENAI_API_KEY=[API-KEY]'),
 
-    # API Keys
-    (r'API_KEY\s*=\s*["\']?[A-Za-z0-9]{20,}["\']?', r'API_KEY = "[API-KEY]"'),
-    (r'([A-Z_]*API_KEY[A-Z0-9_]*)=([^=\s\[\]]+)', r'\1=[API-KEY]'),
-    (r'(AZURE|APPSETTING).*API_KEY.*=([^=\s\[\]]+)', r'\1=[API-KEY]'),
-    (r'"key"\s*:\s*"[A-Za-z0-9]{20,}"', r'"key": "[API-KEY]"'),
+    # 6. API Keys (unquoted) - requires careful ordering
+    (r'(AZURE_API_KEY(?:_\d+)?)=([^\n\r]*)', r'\1=[API-KEY]'),
+    (r'([A-Za-z0-9_-]*(?:API[_-]KEY|APIKEY)[A-Za-z0-9_-]*)=([^\n\r]*)', r'\1=[API-KEY]'),
 
-    # Auth/Bearer Tokens
-    (r'AUTH_TOKEN\s*=\s*["\']?[A-Za-z0-9._-]{10,}["\']?', r'AUTH_TOKEN = "[AUTH-TOKEN]"'),
-    (r'Authorization token: [A-Za-z0-9._-]{10,}', r'Authorization token: [AUTH-TOKEN]'),
-    (r'Bearer\s+[A-Za-z0-9._-]{10,}', r'Bearer [BEARER-TOKEN]'),
-
-    # JWT
+    # 7. JWT and other tokens
     (r'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}', '[JWT-TOKEN]'),
+    (r'AUTH_TOKEN\s*=\s*["\']?([A-Za-z0-9._-]{10,})["\']?', r'AUTH_TOKEN = "[AUTH-TOKEN]"'),
+    (r'AUTH-TOKEN\s*=\s*["\']?([A-Za-z0-9._-]{10,})["\']?', r'AUTH-TOKEN = "[AUTH-TOKEN]"'),
+    (r'Authorization token: ([A-Za-z0-9._-]{10,})', r'Authorization token: [AUTH-TOKEN]'),
+    (r'Bearer\s+([A-Za-z0-9._-]{10,})', r'Bearer [BEARER-TOKEN]'),
+    (r'Authorization: Bearer\s+([A-Za-z0-9._-]{10,})', r'Authorization: Bearer [BEARER-TOKEN]'),
 
-    # Passwords
-    (r'Password=[^;"\']+'';', r'Password=[PASSWORD];'),
-    (r'password\s*=\s*"[^"]*"', r'password = "[PASSWORD]"'),
-    (r'"password"\s*:\s*"[^"]*"', r'"password": "[PASSWORD]"'),
-    # Handle "key=value=True" properly by preserving the trailing content
-    (r'([A-Za-z0-9_]*[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd][A-Za-z0-9_]*)=([^=\s\n]*)(?:(=.*))?', r'\1=[PASSWORD]\3'),
-    (r'([A-Za-z0-9_]*[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd][A-Za-z0-9_]*)="([^"]*)"', r'\1="[PASSWORD]"'),
+    # 8. Passwords (unquoted)
+    (r'([A-Za-z0-9_-]*[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd][A-Za-z0-9_-]*)=([^\n\r]*)', r'\1=[PASSWORD]'),
 
-    # GitHub
+    # 9. GitHub tokens
     (r'ghp_[A-Za-z0-9]{36}', '[GITHUB-TOKEN]'),
+    (r'github_pat_[A-Za-z0-9_]{22}_[A-Za-z0-9]{59}', '[GITHUB-PAT]'),
 
-    # Google
+    # 10. Google
     (r'AIza[A-Za-z0-9_-]{35}', '[GOOGLE-API-KEY]'),
     (r'[0-9]{12}-[A-Za-z0-9_]{32}\.apps\.googleusercontent\.com', '[GOOGLE-OAUTH]'),
 
-    # Generic secrets in env vars - capture just the value, preserving trailing "=True" etc.
-    (r'([A-Z][A-Z0-9_]*(?:_\d+)?(?:SECRET|KEY|TOKEN|AUTH|CRED|SIGN|IDENTITY|MSI)[A-Z0-9_]*)=([^=\s\n]*)(?:(=.*))?',
-     r'\1=[SECRET]\3'),
-    (r'([A-Z][A-Z0-9_]*(?:_\d+)?(?:SECRET|KEY|TOKEN|AUTH|CRED|SIGN|IDENTITY|MSI)[A-Z0-9_]*)="([^"]*)"',
-     r'\1="[SECRET]"'),
+    # 11. Authentication usernames/credentials
+    (r'AUTH_USERNAME=([^\n\r]*)', r'AUTH_USERNAME=[USERNAME]'),
+
+    # 12. Generic secrets (unquoted) - should be last to avoid double-matching
+    (r'([A-Za-z0-9_-]*(?:SECRET|KEY|TOKEN|AUTH|CRED|SIGN|IDENTITY|MSI)[A-Za-z0-9_-]*)=([^\n\r]*)',
+     r'\1=[SECRET]'),
 ]
 
 
@@ -137,7 +147,7 @@ def process_json_content(content: str) -> Tuple[str, int]:
 
 
 def redact_secrets(content: str) -> Tuple[str, Dict[str, int]]:
-    """Redact secrets from text content."""
+    """Redact secrets from text content while preserving line structure."""
     # Initialize counters
     stats = {
         'AWS': 0,
@@ -151,9 +161,6 @@ def redact_secrets(content: str) -> Tuple[str, Dict[str, int]]:
         'Generic': 0
     }
 
-    # Track redacted regions to prevent double-redaction
-    redacted_regions = set()
-
     # First, apply special processing for private keys
     content, private_key_count = redact_private_keys(content)
     stats['Private'] = private_key_count
@@ -164,21 +171,27 @@ def redact_secrets(content: str) -> Tuple[str, Dict[str, int]]:
         content = json_content
         stats['API'] += json_count
 
-    # Apply regex patterns
-    for pattern, replacement in SECRET_PATTERNS:
-        # Find all matches
-        for match in re.finditer(pattern, content):
-            start, end = match.span()
+    # Process line by line to maintain structure
+    lines = content.splitlines(True)  # Keep line endings
+    processed_lines = []
 
-            # Check if this region has already been redacted
-            overlaps = False
-            for s, e in redacted_regions:
-                if start < e and end > s:
-                    overlaps = True
-                    break
+    for line in lines:
+        current_line = line
 
-            if not overlaps:
-                # Process this match
+        # Apply patterns to each line
+        for pattern, replacement in SECRET_PATTERNS:
+            matches = list(re.finditer(pattern, current_line))
+
+            # Process matches in reverse to avoid position shifts
+            for match in reversed(matches):
+                start, end = match.span()
+                match_text = match.group(0)
+
+                # Apply the pattern
+                new_text = re.sub(pattern, replacement, match_text)
+                current_line = current_line[:start] + new_text + current_line[end:]
+
+                # Update stats
                 if '[AWS-' in replacement:
                     stats['AWS'] += 1
                 elif '[AZURE-' in replacement:
@@ -189,20 +202,18 @@ def redact_secrets(content: str) -> Tuple[str, Dict[str, int]]:
                     stats['JWT'] += 1
                 elif '[PASSWORD]' in replacement:
                     stats['Password'] += 1
-                elif '[GITHUB-TOKEN]' in replacement:
+                elif '[GITHUB-' in replacement:
                     stats['GitHub'] += 1
                 elif '[GOOGLE-' in replacement:
                     stats['Google'] += 1
+                elif '[USERNAME]' in replacement:
+                    stats['Generic'] += 1  # Count usernames in Generic
                 else:
                     stats['Generic'] += 1
 
-                # Add to redacted regions
-                redacted_regions.add((start, end))
+        processed_lines.append(current_line)
 
-        # Apply the pattern
-        content = re.sub(pattern, replacement, content)
-
-    return content, stats
+    return ''.join(processed_lines), stats
 
 
 def main():
