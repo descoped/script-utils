@@ -114,5 +114,4 @@ will display an error message.
 - Sanitizing configuration files before posting in public forums
 - Cleaning debug output before sharing with colleagues
 - Making content safe to share with AI assistants
-- Ensuring no secrets are accidentally committed to version control
-- 
+- Ensuring no secrets are accidentally committed to version
