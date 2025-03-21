@@ -2,11 +2,11 @@
 """
 Secret Sanitizer - Identify and redact secrets in text content
 """
-import re
-import sys
 import argparse
 import json
-from typing import Dict, List, Tuple, Set
+import re
+import sys
+from typing import Dict, Tuple
 
 # Secret patterns with their redaction markers
 SECRET_PATTERNS = [
@@ -20,11 +20,12 @@ SECRET_PATTERNS = [
     (r'AccountKey=[A-Za-z0-9+/=]{50,}', r'AccountKey=[AZURE-KEY]'),
     (r'sig=[A-Za-z0-9%+/=]{30,}', r'sig=[AZURE-SAS]'),
     (r'AZURE_STORAGE_SAS_TOKEN="[^"]*"', r'AZURE_STORAGE_SAS_TOKEN="[AZURE-SAS]"'),
+    (r'(AZURE_API_KEY(?:_\d+)?)=([^=\s\[\]]+)', r'\1=[API-KEY]'),
 
     # API Keys
     (r'API_KEY\s*=\s*["\']?[A-Za-z0-9]{20,}["\']?', r'API_KEY = "[API-KEY]"'),
-    (r'[A-Z_]*API_KEY[A-Z0-9_]*=[A-Za-z0-9/+._=-]*', r'\g<0>=[API-KEY]'),
-    (r'(AZURE|APPSETTING).*API_KEY.*=[A-Za-z0-9/+._=-]*', r'\g<0>=[API-KEY]'),
+    (r'([A-Z_]*API_KEY[A-Z0-9_]*)=([^=\s\[\]]+)', r'\1=[API-KEY]'),
+    (r'(AZURE|APPSETTING).*API_KEY.*=([^=\s\[\]]+)', r'\1=[API-KEY]'),
     (r'"key"\s*:\s*"[A-Za-z0-9]{20,}"', r'"key": "[API-KEY]"'),
 
     # Auth/Bearer Tokens
@@ -39,8 +40,9 @@ SECRET_PATTERNS = [
     (r'Password=[^;"\']+'';', r'Password=[PASSWORD];'),
     (r'password\s*=\s*"[^"]*"', r'password = "[PASSWORD]"'),
     (r'"password"\s*:\s*"[^"]*"', r'"password": "[PASSWORD]"'),
-    (r'[A-Za-z0-9_]*[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd][A-Za-z0-9_]*=[^="\']*', r'\g<0>=[PASSWORD]'),
-    (r'[A-Za-z0-9_]*[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd][A-Za-z0-9_]*="[^"]*"', r'\g<0>="[PASSWORD]"'),
+    # Handle "key=value=True" properly by preserving the trailing content
+    (r'([A-Za-z0-9_]*[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd][A-Za-z0-9_]*)=([^=\s\n]*)(?:(=.*))?', r'\1=[PASSWORD]\3'),
+    (r'([A-Za-z0-9_]*[Pp][Aa][Ss][Ss][Ww][Oo][Rr][Dd][A-Za-z0-9_]*)="([^"]*)"', r'\1="[PASSWORD]"'),
 
     # GitHub
     (r'ghp_[A-Za-z0-9]{36}', '[GITHUB-TOKEN]'),
@@ -49,9 +51,11 @@ SECRET_PATTERNS = [
     (r'AIza[A-Za-z0-9_-]{35}', '[GOOGLE-API-KEY]'),
     (r'[0-9]{12}-[A-Za-z0-9_]{32}\.apps\.googleusercontent\.com', '[GOOGLE-OAUTH]'),
 
-    # Generic secrets in env vars
-    (r'[A-Z_]*(SECRET|KEY|TOKEN|AUTH|CRED|SIGN|IDENTITY|MSI)[A-Z_]*=[^="\']*', r'\g<0>=[SECRET]'),
-    (r'[A-Z_]*(SECRET|KEY|TOKEN|AUTH|CRED|SIGN|IDENTITY|MSI)[A-Z_]*="[^"]*"', r'\g<0>="[SECRET]"'),
+    # Generic secrets in env vars - capture just the value, preserving trailing "=True" etc.
+    (r'([A-Z][A-Z0-9_]*(?:_\d+)?(?:SECRET|KEY|TOKEN|AUTH|CRED|SIGN|IDENTITY|MSI)[A-Z0-9_]*)=([^=\s\n]*)(?:(=.*))?',
+     r'\1=[SECRET]\3'),
+    (r'([A-Z][A-Z0-9_]*(?:_\d+)?(?:SECRET|KEY|TOKEN|AUTH|CRED|SIGN|IDENTITY|MSI)[A-Z0-9_]*)="([^"]*)"',
+     r'\1="[SECRET]"'),
 ]
 
 
@@ -169,7 +173,7 @@ def redact_secrets(content: str) -> Tuple[str, Dict[str, int]]:
             # Check if this region has already been redacted
             overlaps = False
             for s, e in redacted_regions:
-                if (start < e and end > s):
+                if start < e and end > s:
                     overlaps = True
                     break
 
