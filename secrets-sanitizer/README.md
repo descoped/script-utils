@@ -1,6 +1,6 @@
-# Secret Sanitizer
+# Secrets Sanitizer
 
-Secret Sanitizer is a utility script that identifies and obfuscates sensitive information in text files or clipboard
+Secrets Sanitizer is a utility script that identifies and obfuscates sensitive information in text files or clipboard
 content. It's particularly useful for preparing logs, configuration files, or debug output for sharing publicly without
 exposing API keys, passwords, tokens, or other secrets.
 
@@ -9,10 +9,10 @@ public forums, or with AI assistants like Claude.
 
 ## Installation
 
-To install `secret-sanitizer.sh`, use the following command:
+To install `secrets-sanitizer.sh`, use the following command:
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/descoped/script-utils/master/installer/install.sh | sh -s -- secret-sanitizer
+curl -sSL https://raw.githubusercontent.com/descoped/script-utils/master/installer/install.sh | sh -s -- secrets-sanitizer
 ```
 
 ## Features
@@ -33,7 +33,7 @@ curl -sSL https://raw.githubusercontent.com/descoped/script-utils/master/install
 
 ## Usage
 
-Use the secret-sanitizer.sh script to sanitize content based on the specified options:
+Use the secrets-sanitizer.sh script to sanitize content based on the specified options:
 
 ### Options
 
@@ -49,42 +49,42 @@ Use the secret-sanitizer.sh script to sanitize content based on the specified op
 Sanitize clipboard content and replace it with obfuscated version:
 
 ```bash
-./secret-sanitizer.sh
+./secrets-sanitizer.sh
 ```
 
 Read from a file and output to clipboard:
 
 ```bash
-./secret-sanitizer.sh -i credentials.log
+./secrets-sanitizer.sh -i credentials.log
 ```
 
 Read from clipboard and write to a file:
 
 ```bash
-./secret-sanitizer.sh -o sanitized.txt
+./secrets-sanitizer.sh -o sanitized.txt
 ```
 
 Read from one file and write to another:
 
 ```bash
-./secret-sanitizer.sh -i debug.log -o sanitized_debug.log
+./secrets-sanitizer.sh -i debug.log -o sanitized_debug.log
 ```
 
 Verbose output with detailed information:
 
 ```bash
-./secret-sanitizer.sh -i config.json -v
+./secrets-sanitizer.sh -i config.json -v
 ```
 
 ## Testing
 
-The repository includes a test script `test-secret-sanitizer.sh` that generates sample data with various types of
+The repository includes a test script `test-secrets-sanitizer.sh` that generates sample data with various types of
 secrets and runs the sanitizer in different configurations to verify functionality.
 
 To run the tests:
 
 ```bash
-./test-secret-sanitizer.sh
+./test-secrets-sanitizer.sh
 ```
 
 This will:

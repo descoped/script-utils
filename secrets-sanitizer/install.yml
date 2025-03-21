@@ -5,8 +5,9 @@
 #   create-symlink: true/false (will create a symlink file named filename without .ext)
 #   destination: subdirectory (optional, default is root of install_dir)
 
-- file: secret-sanitizer.sh
+- file: secrets-sanitizer.sh
   executable: true
   create-symlink: true
+- file: secrets-sanitizer.py
 - file: README.md
   destination: docs

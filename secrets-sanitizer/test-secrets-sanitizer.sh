@@ -1,24 +1,26 @@
 #!/bin/bash
 
-# test-secret-sanitizer.sh
-# A script to test the secret-sanitizer.sh script with various inputs and outputs
+# test-secrets-sanitizer.sh
+# A script to test the secrets-sanitizer.sh script with various inputs and outputs
 # This script generates random test data with various types of secrets
 
-# Make sure secret-sanitizer.sh exists and is executable
-if [[ ! -f ./secret-sanitizer.sh ]]; then
-    echo "Error: secret-sanitizer.sh not found in current directory."
+# Make sure secrets-sanitizer.sh exists and is executable
+if [[ ! -f ./secrets-sanitizer.sh ]]; then
+    echo "Error: secrets-sanitizer.sh not found in current directory."
     exit 1
 fi
 
-if [[ ! -x ./secret-sanitizer.sh ]]; then
-    chmod +x ./secret-sanitizer.sh
-    echo "Made secret-sanitizer.sh executable."
+if [[ ! -x ./secrets-sanitizer.sh ]]; then
+    chmod +x ./secrets-sanitizer.sh
+    echo "Made secrets-sanitizer.sh executable."
 fi
 
-# Create test data directory
+# Create test data directory with clear structure
 TEST_DIR="./sanitizer_test"
 mkdir -p "$TEST_DIR"
-echo "Created test directory: $TEST_DIR"
+mkdir -p "$TEST_DIR/input"
+mkdir -p "$TEST_DIR/output"
+echo "Created test directory structure: $TEST_DIR"
 
 # Function to generate random strings
 random_string() {
@@ -48,9 +50,9 @@ jwt="eyJ${jwt_header}.${jwt_payload}.${jwt_signature}"
 # Generate database credentials
 db_password="$(random_string 16 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*')"
 
-# Create test data file
-TEST_FILE="$TEST_DIR/sample_with_secrets.txt"
-cat > "$TEST_FILE" << EOF
+# Create plaintext input file
+INPUT_PLAINTEXT="$TEST_DIR/input/plaintext_with_secrets.txt"
+cat > "$INPUT_PLAINTEXT" << EOF
 # AWS Configuration
 aws_access_key_id = "$aws_access_key"
 aws_secret_access_key = "$aws_secret_key"
@@ -95,11 +97,11 @@ HEI7JTwRjR0Exxiu6bfCOlqp0xwOSEOF/Q6TDCm4o1jdBD/apgiGgV/xQjKedbi0
 # End of file
 EOF
 
-echo "Created test file with sample secrets: $TEST_FILE"
+echo "Created plaintext input file: $INPUT_PLAINTEXT"
 
-# Create a JSON file with secrets
-TEST_JSON="$TEST_DIR/config.json"
-cat > "$TEST_JSON" << EOF
+# Create a JSON input file with secrets
+INPUT_JSON="$TEST_DIR/input/json_with_secrets.json"
+cat > "$INPUT_JSON" << EOF
 {
   "aws": {
     "access_key": "$aws_access_key",
@@ -126,44 +128,58 @@ cat > "$TEST_JSON" << EOF
 }
 EOF
 
-echo "Created test JSON file with sample secrets: $TEST_JSON"
+echo "Created JSON input file: $INPUT_JSON"
+
+# Define output files with consistent naming
+OUTPUT_PLAINTEXT="$TEST_DIR/output/plaintext_sanitized.txt"
+OUTPUT_JSON="$TEST_DIR/output/json_sanitized.json"
+OUTPUT_CLIPBOARD_TO_FILE="$TEST_DIR/output/clipboard_to_file_sanitized.txt"
 
 # Now let's run tests with different variations
 
 echo ""
-echo "=== TEST 1: File to File ==="
-echo "Running: ./secret-sanitizer.sh -i $TEST_FILE -o $TEST_DIR/file_to_file.txt"
-./secret-sanitizer.sh -i "$TEST_FILE" -o "$TEST_DIR/file_to_file.txt"
-echo "Result file: $TEST_DIR/file_to_file.txt"
+echo "=== TEST 1: Plaintext File to File ==="
+echo "Running: ./secrets-sanitizer.sh -i $INPUT_PLAINTEXT -o $OUTPUT_PLAINTEXT"
+./secrets-sanitizer.sh -i "$INPUT_PLAINTEXT" -o "$OUTPUT_PLAINTEXT"
+echo "Result file: $OUTPUT_PLAINTEXT"
 
 echo ""
 echo "=== TEST 2: JSON File to File ==="
-echo "Running: ./secret-sanitizer.sh -i $TEST_JSON -o $TEST_DIR/json_to_file.txt"
-./secret-sanitizer.sh -i "$TEST_JSON" -o "$TEST_DIR/json_to_file.txt"
-echo "Result file: $TEST_DIR/json_to_file.txt"
+echo "Running: ./secrets-sanitizer.sh -i $INPUT_JSON -o $OUTPUT_JSON"
+./secrets-sanitizer.sh -i "$INPUT_JSON" -o "$OUTPUT_JSON"
+echo "Result file: $OUTPUT_JSON"
 
 echo ""
-echo "=== TEST 3: File to Clipboard ==="
-echo "Running: ./secret-sanitizer.sh -i $TEST_FILE"
-./secret-sanitizer.sh -i "$TEST_FILE"
+echo "=== TEST 3: Plaintext File to Clipboard ==="
+echo "Running: ./secrets-sanitizer.sh -i $INPUT_PLAINTEXT"
+./secrets-sanitizer.sh -i "$INPUT_PLAINTEXT"
 echo "Content is now in clipboard. You can paste it somewhere to verify."
 
 echo ""
 echo "=== TEST 4: Clipboard to File ==="
-echo "First, copying original content to clipboard..."
-cat "$TEST_FILE" | pbcopy
-echo "Running: ./secret-sanitizer.sh -o $TEST_DIR/clipboard_to_file.txt"
-./secret-sanitizer.sh -o "$TEST_DIR/clipboard_to_file.txt"
-echo "Result file: $TEST_DIR/clipboard_to_file.txt"
+echo "First, copying plaintext content to clipboard..."
+cat "$INPUT_PLAINTEXT" | pbcopy
+echo "Running: ./secrets-sanitizer.sh -o $OUTPUT_CLIPBOARD_TO_FILE"
+./secrets-sanitizer.sh -o "$OUTPUT_CLIPBOARD_TO_FILE"
+echo "Result file: $OUTPUT_CLIPBOARD_TO_FILE"
 
 echo ""
 echo "=== TEST 5: Clipboard to Clipboard ==="
-echo "First, copying original content to clipboard..."
-cat "$TEST_JSON" | pbcopy
-echo "Running: ./secret-sanitizer.sh"
-./secret-sanitizer.sh
+echo "First, copying JSON content to clipboard..."
+cat "$INPUT_JSON" | pbcopy
+echo "Running: ./secrets-sanitizer.sh"
+./secrets-sanitizer.sh
 echo "Sanitized content is now in clipboard. You can paste it somewhere to verify."
 
 echo ""
 echo "All tests completed!"
-echo "Check the $TEST_DIR directory for output files."
+echo ""
+echo "Input files:"
+echo "  - Plaintext: $INPUT_PLAINTEXT"
+echo "  - JSON: $INPUT_JSON"
+echo ""
+echo "Output files:"
+echo "  - Test 1 (Plaintext): $OUTPUT_PLAINTEXT"
+echo "  - Test 2 (JSON): $OUTPUT_JSON"
+echo "  - Test 4 (Clipboard to File): $OUTPUT_CLIPBOARD_TO_FILE"
+echo "  - Test 3 & 5: Results in clipboard"
