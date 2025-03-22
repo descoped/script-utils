@@ -11,40 +11,57 @@ import yaml
 from tqdm import tqdm
 
 # Import the transform functionality from extract-code-signatures.py
-# Check if the script is in the same directory or in PYTHONPATH
-try:
-    # First try direct import
-    from extract_code_signatures import transform_content, SYSTEM_PROMPT
-except ImportError:
-    # If that fails, try to find the script in the same directory
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    if script_dir not in sys.path:
-        sys.path.append(script_dir)
-    try:
-        # Try with underscores (Python module naming convention)
-        from extract_code_signatures import transform_content, SYSTEM_PROMPT
-    except ImportError:
-        # Try with the exact filename
-        import importlib.util
+# Import handling that works with hyphenated filenames and is path independent
+script_dir = os.path.dirname(os.path.abspath(__file__))
 
-        spec = importlib.util.spec_from_file_location(
-            "extract_code_signatures",
-            os.path.join(script_dir, "extract-code-signatures.py")
-        )
-        if spec and spec.loader:
-            extract_code_signatures = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(extract_code_signatures)
-            transform_content = extract_code_signatures.transform_content
-            SYSTEM_PROMPT = extract_code_signatures.SYSTEM_PROMPT
-        else:
-            # Define fallback versions if import fails
-            def transform_content(content, transform_type):
-                print(f"Warning: extract-code-signatures.py not found. Cannot transform to {transform_type}.",
-                      file=sys.stderr)
-                return content
+# Direct import with importlib for extract-code-signatures.py
+import importlib.util
+
+extract_file_path = os.path.join(script_dir, "extract-code-signatures.py")
+if not os.path.exists(extract_file_path):
+    # Try in same directory without script_dir prefix
+    extract_file_path = "extract-code-signatures.py"
+
+if os.path.exists(extract_file_path):
+    spec = importlib.util.spec_from_file_location("extract_code_signatures", extract_file_path)
+    if spec and spec.loader:
+        extract_code_signatures = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(extract_code_signatures)
+        transform_content = extract_code_signatures.transform_content
+        SYSTEM_PROMPT = extract_code_signatures.SYSTEM_PROMPT
+    else:
+        def transform_content(content, transform_type):
+            print(f"Warning: Could not load module from {extract_file_path}. Cannot transform to {transform_type}.",
+                  file=sys.stderr)
+            return content
 
 
-            SYSTEM_PROMPT = """You are an expert Python programmer analyzing code files that include both
+        SYSTEM_PROMPT = """You are an expert Python programmer analyzing code files that include both
+IDL (Interface Definition Language) declarations and Python implementations.
+In these concatenated files, IDL declarations serve as interfaces or traits with type information,
+ while the Python code contains the actual implementations.
+
+When analyzing, use the IDL declarations as a guide to understand the intended design,
+but focus primarily on the Python code. Your analysis should cover the overall purpose, module architecture,
+key functions, and notable design decisions.
+Emphasize practical insights that help developers understand and work with the code.
+
+Key Points:
+
+- Treat IDL declarations (with keywords like "function", "in", "returns", and "const") as Python interfaces 
+  with type hints.
+- Focus on the actual Python implementations for detailed analysis.
+- Provide an analysis that is structured yet adaptable to various files and user-specific prompts.
+"""
+else:
+    def transform_content(content, transform_type):
+        print(
+            f"Warning: extract-code-signatures.py not found at {extract_file_path}. Cannot transform to {transform_type}.",
+            file=sys.stderr)
+        return content
+
+
+    SYSTEM_PROMPT = """You are an expert Python programmer analyzing code files that include both
 IDL (Interface Definition Language) declarations and Python implementations.
 In these concatenated files, IDL declarations serve as interfaces or traits with type information,
  while the Python code contains the actual implementations.
@@ -402,6 +419,7 @@ def consumer(
         header_template: str,
         footer_template: str,
         progress_bar,
+        verbose_value: bool = False,
 ):
     """
     Process files from the shared list and append their content.
@@ -412,6 +430,7 @@ def consumer(
         header_template (str): Template for the header.
         footer_template (str): Template for the footer.
         progress_bar: Progress bar object.
+        verbose_value (bool): Whether to print verbose output.
     """
     while True:
         try:
@@ -431,9 +450,17 @@ def consumer(
             # Apply transformation if specified
             if transform:
                 try:
+                    old_content = content
                     content = transform_content(content, transform)
+
+                    # Detect if transformation had no effect
+                    if content == old_content and verbose_value:
+                        click.echo(f"Warning: Transformation to {transform} had no effect for {file_path}", err=True)
                 except Exception as e:
                     click.echo(f"Error transforming {file_path} to {transform}: {e}", err=True)
+                    if verbose_value:
+                        import traceback
+                        click.echo(traceback.format_exc(), err=True)
 
             # Apply header and footer
             header = header_template.format(filename=relative_path, filepath=file_path)
@@ -506,6 +533,10 @@ def consumer(
     "--verbose", "-v", is_flag=True, help="Enable verbose output", show_default=True
 )
 @click.option(
+    "--debug", is_flag=True, help="Enable debug mode with detailed error messages",
+    show_default=True
+)
+@click.option(
     "--header-template",
     default="# File: {filename}\n\n",
     help="Custom header template",
@@ -547,6 +578,7 @@ def main(
         exclude_dirs,
         exclude_files,
         verbose,
+        debug,
         header_template,
         footer_template,
         non_recursive,
@@ -571,6 +603,12 @@ def main(
 
     YAML support requires PyYAML (pip install pyyaml)
     """
+    # Enable debug mode if requested
+    if debug:
+        verbose = True
+        import traceback
+        sys.excepthook = lambda type, value, tb: traceback.print_exception(type, value, tb)
+
     # Load configuration profile if specified
     config = load_config_profile(profile)
 
@@ -682,6 +720,7 @@ def main(
                 header_template_value,
                 footer_template_value,
                 progress_bar,
+                verbose_value,
             ),
             daemon=True,
         )
