@@ -72,5 +72,5 @@ if [ ! -f "$EXTRACT_SCRIPT" ]; then
     echo "Transform functionality will be limited"
 fi
 
-# Run the Python script with all arguments passed to this bash script
+# Run the Python script with all arguments
 python3 "$PYTHON_SCRIPT" "$@"

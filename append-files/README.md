@@ -1,66 +1,149 @@
-# Append Files
+# Append Files: User Documentation
 
-Append Files is a utility script that appends files from specified directories and file extensions into a single output file or clipboard. This tool is particularly useful for creating a single file that contains all source code, which can be helpful when you need to discuss or analyze code with generative AI language models.
+`append-files` is a utility for combining multiple code files into a single output, with optional code transformation capabilities. This documentation explains all concepts and features in detail.
 
-Each appended file's content is separated by a customizable header and footer. By default, the header is:
+## Core Concepts
+
+### File Concatenation
+
+The primary purpose of `append-files` is to concatenate multiple files, preserving their content while adding headers and footers to identify each file's source. This is particularly useful for:
+
+- Sharing code with AI assistants like ChatGPT or Claude
+- Creating code documentation that includes source files
+- Bundling related code files for analysis
+
+### Transformation
+
+Beyond simple concatenation, `append-files` can transform code files into different representations:
+
+- **IDL (Interface Definition Language)**: Extracts code structure, focusing on function signatures, class definitions, and type information. Creates an interface-like representation that emphasizes structure over implementation details.
+- **JSON**: Converts code into a structured JSON representation for programmatic analysis.
+
+### System Prompt
+
+When using transformations, a system prompt can be included that helps AI models understand the transformed code format. This prompt explains that IDL declarations serve as interfaces/traits with type information, while the Python code contains implementations.
+
+## Command Structure
 
 ```
-# File: path/to/file.py
+./append-files.sh [OPTIONS]
 ```
 
-And the footer is a blank line.
+## Option Categories
 
-## Installation
+### Input Options
 
-To install `append-files.sh`, use the following command:
+| Option | Description |
+|--------|-------------|
+| `-i, --input PATH` | Specifies input files or directories with optional extensions. Format: `path[:ext1,ext2,...]` |
+| `-t, --transform PATH` | Similar to input, but applies transformation. Format: `path[:ext1,ext2,...][:{idl|json}]` |
+| `--transform-format [idl\|json]` | Default transform format when not specified in `-t` |
 
-```bash
-curl -sSL https://raw.githubusercontent.com/descoped/script-utils/master/installer/install.sh | sh -s -- append-files
+### Output Options
+
+| Option | Description |
+|--------|-------------|
+| `-o, --output-file TEXT` | Writes output to specified file |
+| `-c, --clipboard` | Copies output to clipboard |
+
+### Filtering Options
+
+| Option | Description |
+|--------|-------------|
+| `-e, --exclude-dir TEXT` | Directories to exclude from processing |
+| `-x, --exclude-file TEXT` | Files to exclude from processing |
+| `--non-recursive` | Disables recursive directory traversal |
+| `--default-extension TEXT` | Default file extension when not specified (default: `.py`) |
+
+### Formatting Options
+
+| Option | Description |
+|--------|-------------|
+| `--header-template TEXT` | Template for file headers (default: `# File: {filename}\n\n`) |
+| `--footer-template TEXT` | Template for file footers (default: `\n\n`) |
+| `--skip-prompt` | Disables inclusion of system prompt with transform paths |
+
+### Configuration Options
+
+| Option | Description |
+|--------|-------------|
+| `-p, --profile TEXT` | Path to configuration profile file (JSON or YAML) |
+
+### Miscellaneous Options
+
+| Option | Description |
+|--------|-------------|
+| `-v, --verbose` | Enables verbose output |
+| `--help` | Shows help message and exits |
+
+## Path Specification Details
+
+The tool uses a flexible path specification format that combines paths with extensions and transform types:
+
+### Input Paths (`-i, --input`)
+
+- `file.py` - Include a specific file
+- `dir/` - Include all Python files (default extension) in directory
+- `dir/:js,ts` - Include all JavaScript and TypeScript files in directory
+
+### Transform Paths (`-t, --transform`)
+
+- `file.py:idl` - Transform a specific file to IDL format
+- `dir/:idl` - Transform all Python files to IDL format
+- `dir/:js,ts:json` - Transform all JavaScript and TypeScript files to JSON format
+- `dir/:py:idl` - Transform all Python files to IDL format
+
+## Understanding Transformation
+
+### IDL Transformation
+
+IDL transformation extracts code structure, producing a representation that:
+
+1. Shows module-level docstrings as comments
+2. Lists imports
+3. Defines constants and global variables
+4. Lists functions with parameters, return types, and docstrings
+5. Defines classes as interfaces with their methods and properties
+
+Example:
+```
+// Module docstring as comments
+import module_name;
+import other_module.specific_function;
+
+const MY_CONSTANT = 42;
+
+// Function docstring as comments
+function my_function(in str name, in int count) returns List[str];
+
+interface MyClass extends BaseClass {
+  // Class docstring as comments
+  const CLASS_VAR = "value";
+  
+  constructor(str name, int value);
+  
+  my_method(in List[str] items) returns bool;
+  
+  static static_method(in int value) returns void;
+};
 ```
 
-Ensure that you have Python 3.7 or higher installed, along with the required Python packages (click, pyperclip, tqdm, pyyaml). The script will attempt to install missing packages automatically.
+### JSON Transformation
 
-## Usage
+JSON transformation produces a structured representation of code elements including:
+- Module information
+- Imports
+- Global variables
+- Function definitions with parameters and return types
+- Class definitions with inheritance, methods, and class variables
 
-Use the append-files.sh script to append files based on the specified options. The script allows you to specify input files and directories, file extensions, and the output destination (either a file, the console, or the clipboard).
+This format is meant for programmatic analysis rather than human reading.
 
-### Options
+## Configuration Profiles
 
-- `-p, --profile TEXT`: Path to configuration profile (JSON or YAML).
-- `-i, --input PATH`: Input files or directories with extensions (e.g., file.py, dir/:ext1,ext2). Multiple input options can be specified.
-- `-t, --transform PATH`: Transform files or directories with optional extensions and transform type (e.g., file.py:idl, dir/:py:json).
-- `--transform-format [idl|json]`: Default transform format to use (default: idl).
-- `-o, --output-file TEXT`: Name of the output file.
-- `-c, --clipboard`: Copy output to clipboard.
-- `-e, --exclude-dir TEXT`: Directories to exclude from processing (default: .git, __pycache__, venv, .venv).
-- `-x, --exclude-file TEXT`: Files to exclude from processing.
-- `-v, --verbose`: Enable verbose output.
-- `--header-template TEXT`: Custom header template (default: # File: {filename}\n\n).
-- `--footer-template TEXT`: Custom footer template (default: \n\n).
-- `--non-recursive`: Disable recursive directory traversal.
-- `--default-extension TEXT`: Default file extension to use (default: .py).
-- `--include-system-prompt`: Include system prompt for IDL transformations.
-- `--help`: Show help message and exit.
-
-### Configuration Profiles
-
-You can save common command-line options in configuration profiles using YAML or JSON format. This allows you to reuse settings without typing lengthy command lines.
-
-#### Profile Locations
-
-The tool checks for configuration profiles in the following locations:
-- `.append-files`, `.append-files.json`, `.append-files.yaml`, or `.append-files.yml` in the current directory
-- `~/.append-files`, `~/.append-files.json`, `~/.append-files.yaml`, or `~/.append-files.yml` in your home directory
-- `~/.config/append-files`, `~/.config/append-files.json`, `~/.config/append-files.yaml`, or `~/.config/append-files.yml` in your config directory
-
-You can also specify a custom profile path using the `--profile` option.
-
-#### Example Configuration (YAML)
-
-Configuration files can be created in either YAML or JSON format following the same structure. Here's an example in YAML:
+Configuration profiles allow storing common settings in JSON or YAML format:
 
 ```yaml
-# Append Files Configuration
 input_paths:
   - src/
   - lib/:py,cpp,h
@@ -74,7 +157,6 @@ exclude_dirs:
   - .git
   - __pycache__
   - venv
-  - .venv
   - node_modules
 
 exclude_files:
@@ -84,88 +166,76 @@ exclude_files:
 header_template: "# File: {filename}\n\n"
 footer_template: "\n\n"
 default_extension: .py
-include_system_prompt: true
+skip_prompt: false
 verbose: false
 non_recursive: false
 ```
 
-JSON format follows the same structure but with JSON syntax.
+Configuration profiles are searched in:
+1. Current directory: `.append-files[.json|.yaml|.yml]`
+2. Home directory: `~/.append-files[.json|.yaml|.yml]`
+3. XDG config: `~/.config/append-files[.json|.yaml|.yml]`
+4. Custom path specified with `--profile`
 
-#### Profile Usage
+## Advanced Usage Examples
 
-Use a profile without specifying any additional options:
+### Basic concatenation with default Python extension
 ```bash
-./append-files.sh
+./append-files.sh -i src/ -o combined.py
 ```
 
-Override profile settings with command-line options:
+### Multiple input paths with different extensions
 ```bash
-./append-files.sh --transform-format json
+./append-files.sh -i src/:py -i lib/:cpp,h -i config/:json -o project_files.txt
 ```
 
-Use a custom profile:
+### Transform Python files to IDL format, copying to clipboard
 ```bash
-./append-files.sh --profile my-settings.yaml
+./append-files.sh -t src/:py:idl -c
 ```
 
-### Usage Examples
-
-Append specific files and output to console:
+### Mixed regular and transformed inputs
 ```bash
-./append-files.sh -i file1.py -i file2.py
+./append-files.sh -i src/main.py -i README.md -t src/api/:idl -o project_overview.txt
 ```
 
-Append files from a directory with specific extensions and output to a file:
+### Using custom header/footer with template variables
 ```bash
-./append-files.sh -i src/:py,txt -o combined.txt
+./append-files.sh -i src/:py --header-template="// BEGIN {filepath} (Last edited: $(date))\n\n" --footer-template="\n// END {filepath}\n\n"
 ```
 
-Copy appended content to clipboard with verbose output:
+### Using a configuration profile with overrides
 ```bash
-./append-files.sh -i src/:py -c -v
+./append-files.sh -p my-profile.yaml -v --skip-prompt
 ```
 
-Exclude specific directories and files:
-```bash
-./append-files.sh -i src/ -e tests -e legacy_code -x ignore_this.py
-```
+## Implementation Details
 
-Use custom header and footer templates:
-```bash
-./append-files.sh -i src/:py --header-template='// Start of {filename}\n' --footer-template='// End of {filename}\n' -o combined.cpp
-```
+### File Processing Flow
 
-Transform Python files to IDL format:
-```bash
-./append-files.sh -t src/:py:idl -o api.idl
-```
+1. Scan input directories and collect files matching specified extensions
+2. Filter files based on exclusion patterns
+3. Read file content with UTF-8 encoding
+4. Apply transformations if specified
+5. Add headers and footers
+6. Combine content in original order
+7. Output to specified destination (file, clipboard, or console)
 
-## Notes
+### Multi-threading
 
-- **Header and Footer Templates**: The `--header-template` and `--footer-template` options allow you to customize the header and footer for each file's content. You can use `{filename}` and `{filepath}` as placeholders.
-- **Hidden Files and Directories**: The script excludes hidden files and directories (those starting with a dot) by default.
-- **Unicode Support**: The script reads and writes files using UTF-8 encoding to handle Unicode characters properly.
-- **Configuration Precedence**: Command-line options take precedence over configuration profile settings, which take precedence over default values.
+The tool uses multi-threading to process files concurrently, improving performance with large file sets.
 
-## Error Handling
+### Error Handling
 
-The script checks for the presence of Python 3.7 or higher. If the required version is not installed, you will receive an error message.
+- Missing dependencies trigger automatic installation attempts
+- Invalid or unreadable files are skipped
+- Unicode errors are handled gracefully
+- Binary files are automatically excluded
 
-The script also checks for required Python packages (click, pyperclip, tqdm, pyyaml). If any are missing, the script will attempt to install them automatically using pip.
+## Practical Use Cases
 
-If an error occurs while reading or writing files (e.g., due to permission issues or invalid file paths), the script will display an error message and continue processing other files.
-
-## Dependencies
-
-Make sure to have the following Python packages installed:
-
-- click
-- pyperclip
-- tqdm
-- pyyaml (optional, for YAML configuration files)
-
-You can install the required packages using:
-
-```bash
-pip install click pyperclip tqdm pyyaml
-```
+1. **Sharing code with AI assistants**: Create a single file with entire codebase for context
+2. **Code documentation**: Generate interface documentation from implementation
+3. **Code reviews**: Bundle related files for easier review 
+4. **Project analysis**: Transform complex codebases to clearer representations
+5. **Creating training data**: Prepare code samples in consistent format

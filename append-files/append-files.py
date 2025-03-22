@@ -44,9 +44,23 @@ except ImportError:
                 return content
 
 
-            SYSTEM_PROMPT = """System Prompt:
-You are an expert Python programmer analyzing code files that include both
-IDL (Interface Definition Language) declarations and Python implementations."""
+            SYSTEM_PROMPT = """You are an expert Python programmer analyzing code files that include both
+IDL (Interface Definition Language) declarations and Python implementations.
+In these concatenated files, IDL declarations serve as interfaces or traits with type information,
+ while the Python code contains the actual implementations.
+
+When analyzing, use the IDL declarations as a guide to understand the intended design,
+but focus primarily on the Python code. Your analysis should cover the overall purpose, module architecture,
+key functions, and notable design decisions.
+Emphasize practical insights that help developers understand and work with the code.
+
+Key Points:
+
+- Treat IDL declarations (with keywords like "function", "in", "returns", and "const") as Python interfaces 
+  with type hints.
+- Focus on the actual Python implementations for detailed analysis.
+- Provide an analysis that is structured yet adaptable to various files and user-specific prompts.
+"""
 
 # Default file extension to use when none is specified
 default_extension = ".py"
@@ -98,7 +112,7 @@ def load_config_profile(profile_path: Optional[str] = None) -> Dict[str, Any]:
             try:
                 with open(path, 'r', encoding='utf-8') as f:
                     # Determine file format based on extension
-                    if path.endswith(('.yml', '.yaml')) and yaml_support:
+                    if path.endswith(('.yml', '.yaml')):
                         config = yaml.safe_load(f)
                     else:
                         config = json.load(f)
@@ -516,15 +530,15 @@ def consumer(
     show_default=True,
 )
 @click.option(
-    "--include-system-prompt",
+    "--skip-prompt",
     is_flag=True,
-    help="Include system prompt for IDL transformations",
+    help="Skip including system prompt with transform paths",
     show_default=True,
 )
 @click.pass_context
 def main(
         ctx,
-        profile,  # New parameter
+        profile,
         input_paths,
         transform_paths,
         transform_format,
@@ -537,7 +551,7 @@ def main(
         footer_template,
         non_recursive,
         default_extension,
-        include_system_prompt,
+        skip_prompt,
 ):
     """
     Append files and directories with specified extensions or directly from files.
@@ -545,6 +559,9 @@ def main(
     This script concatenates the contents of specified files and directories,
     applying optional headers and footers to each file's content. It can also
     transform file contents using various formats (e.g., IDL, JSON).
+
+    When using transform paths, the system prompt is included by default.
+    Use --skip-prompt to disable this behavior.
 
     Configuration profiles can be used to store common settings:
       - Default: .append-files[.json|.yaml|.yml] in the current directory
@@ -601,7 +618,10 @@ def main(
     if default_extension == ".py":  # Default value
         default_extension_value = config.get("default_extension", default_extension)
 
-    include_system_prompt_value = include_system_prompt or config.get("include_system_prompt", False)
+    # Determine whether to include system prompt - include by default with transforms
+    # unless explicitly disabled with --skip-prompt
+    skip_prompt_value = skip_prompt or config.get("skip_prompt", False)
+    include_system_prompt = transform_paths_list and not skip_prompt_value
 
     # Now continue with the rest of the function using the merged options
     if not input_paths_list and not transform_paths_list:
@@ -681,8 +701,8 @@ def main(
     # Sort the content to maintain the original order
     append_content_list.sort(key=lambda x: x["index"])
 
-    # Add system prompt if requested
-    prefix = SYSTEM_PROMPT + "\n\n" if include_system_prompt_value else ""
+    # Add system prompt if including transforms and not skipping prompt
+    prefix = SYSTEM_PROMPT + "\n\n" if include_system_prompt else ""
 
     # Concatenate the content from all files
     append_content = prefix + "\n".join(item["content"] for item in append_content_list)
