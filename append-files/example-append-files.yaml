@@ -1,0 +1,28 @@
+# Append Files Configuration
+input_paths:
+  - src/
+  - lib/:py,cpp,h
+
+transform_paths:
+  - proto/:py:idl
+
+transform_format: idl
+
+exclude_dirs:
+  - .git
+  - __pycache__
+  - venv
+  - .venv
+  - node_modules
+  - build
+
+exclude_files:
+  - setup.py
+  - __init__.py
+
+header_template: "# File: {filename}\n\n"
+footer_template: "\n\n"
+default_extension: .py
+include_system_prompt: true
+verbose: false
+non_recursive: false

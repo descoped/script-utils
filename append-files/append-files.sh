@@ -36,16 +36,20 @@ if ! command_exists pip3; then
 fi
 
 # Required Python packages
-REQUIRED_PKG="click pyperclip tqdm"
+REQUIRED_PKG="click pyperclip tqdm pyyaml"
 
 # Check if each required package is installed, if not, install it
 for pkg in $REQUIRED_PKG; do
-    if ! python3 -c "import $pkg" &> /dev/null; then
+    if ! python3 -c "import ${pkg/pyyaml/yaml}" &> /dev/null; then
         echo "Package $pkg not found. Installing..."
         pip3 install $pkg
         if [ $? -ne 0 ]; then
             echo "Error installing $pkg. Please check your Python and pip setup."
-            exit 1
+            if [ "$pkg" = "pyyaml" ]; then
+                echo "Warning: YAML configuration support will be limited."
+            else
+                exit 1
+            fi
         fi
     fi
 done

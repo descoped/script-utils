@@ -9,5 +9,6 @@
   executable: true
   create-symlink: true
 - file: append-files.py
+- file: extract-code-signatures.py
 - file: README.md
   destination: docs
