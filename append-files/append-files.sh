@@ -9,6 +9,15 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
+# Function to detect if UV package manager is being used
+is_using_uv() {
+    if [ -f "pyproject.toml" ]; then
+        grep -q "\[project\]" pyproject.toml
+        return $?
+    fi
+    return 1
+}
+
 # Check if Python 3 is installed
 if ! command_exists python3; then
     echo "Error: Python 3 is not installed. Please install Python 3 and try again."
@@ -38,13 +47,27 @@ fi
 # Required Python packages
 REQUIRED_PKG="click pyperclip tqdm pyyaml"
 
+# Check if we should use UV or regular pip
+if is_using_uv; then
+    echo "UV package manager detected (pyproject.toml with [project] section found)"
+    INSTALL_CMD="uv pip install"
+
+    # Check if UV is installed
+    if ! command_exists uv; then
+        echo "Error: UV package manager is not installed. Please install UV and try again."
+        exit 1
+    fi
+else
+    INSTALL_CMD="pip3 install"
+fi
+
 # Check if each required package is installed, if not, install it
 for pkg in $REQUIRED_PKG; do
     if ! python3 -c "import ${pkg/pyyaml/yaml}" &> /dev/null; then
-        echo "Package $pkg not found. Installing..."
-        pip3 install $pkg
+        echo "Package $pkg not found. Installing using $INSTALL_CMD..."
+        $INSTALL_CMD $pkg
         if [ $? -ne 0 ]; then
-            echo "Error installing $pkg. Please check your Python and pip setup."
+            echo "Error installing $pkg. Please check your Python and package manager setup."
             if [ "$pkg" = "pyyaml" ]; then
                 echo "Warning: YAML configuration support will be limited."
             else
