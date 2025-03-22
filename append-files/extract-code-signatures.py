@@ -105,6 +105,7 @@ class CodeStructureExtractor(ast.NodeVisitor):
 
     def visit_FunctionDef(self, node):
         docstring = ast.get_docstring(node)
+        is_async = isinstance(node, ast.AsyncFunctionDef)
 
         params = []
         for arg in node.args.args:
@@ -140,7 +141,8 @@ class CodeStructureExtractor(ast.NodeVisitor):
             "params": params,
             "docstring": docstring,
             "return_type": return_type,
-            "decorators": [self._get_decorator_str(d) for d in node.decorator_list]
+            "decorators": [self._get_decorator_str(d) for d in node.decorator_list],
+            "is_async": is_async
         }
 
         if self.current_class:
@@ -149,6 +151,10 @@ class CodeStructureExtractor(ast.NodeVisitor):
             self.structure["functions"].append(function_data)
 
         self.generic_visit(node)
+
+    def visit_AsyncFunctionDef(self, node):
+        # Handle async function definitions
+        self.visit_FunctionDef(node)
 
     def visit_ClassDef(self, node):
         docstring = ast.get_docstring(node)
@@ -193,10 +199,16 @@ class CodeStructureExtractor(ast.NodeVisitor):
             return node.id
         elif isinstance(node, ast.Subscript):
             value = self._get_annotation_str(node.value)
-            if isinstance(node.slice, ast.Index):  # Python 3.8 and below
+            if hasattr(node, 'slice') and isinstance(node.slice, ast.Index):  # Python 3.8 and below
                 slice_value = self._get_annotation_str(node.slice.value)
-            else:  # Python 3.9+
-                slice_value = self._get_annotation_str(node.slice)
+            elif hasattr(node, 'slice') and isinstance(node.slice, ast.Tuple):  # Python 3.9+
+                slice_value = ", ".join(self._get_annotation_str(elt) for elt in node.slice.elts)
+            elif hasattr(node, 'slice') and isinstance(node.slice, ast.Name):  # Python 3.9+
+                slice_value = node.slice.id
+            elif hasattr(node, 'slice') and isinstance(node.slice, ast.Constant):  # Python 3.9+
+                slice_value = str(node.slice.value)
+            else:
+                slice_value = "Any"
             return f"{value}[{slice_value}]"
         elif isinstance(node, ast.Tuple):
             return ", ".join(self._get_annotation_str(elt) for elt in node.elts)
@@ -214,18 +226,55 @@ class CodeStructureExtractor(ast.NodeVisitor):
         return "unknown"
 
     def _get_decorator_str(self, node) -> str:
+        """Extract decorator name and arguments in a more detailed way"""
         if isinstance(node, ast.Name):
             return node.id
         elif isinstance(node, ast.Call):
             func_name = self._get_attribute_path(node.func)
             args = []
+
+            # Handle positional arguments
             for arg in node.args:
                 if isinstance(arg, ast.Constant):
                     args.append(repr(arg.value))
                 elif isinstance(arg, ast.Name):
                     args.append(arg.id)
+                elif isinstance(arg, ast.Attribute):
+                    args.append(self._get_attribute_path(arg))
+                elif isinstance(arg, ast.List):
+                    # Handle list arguments
+                    list_items = []
+                    for item in arg.elts:
+                        if isinstance(item, ast.Constant):
+                            list_items.append(repr(item.value))
+                        else:
+                            list_items.append("...")
+                    args.append(f"[{', '.join(list_items)}]")
+                else:
+                    args.append("...")
+
+            # Handle keyword arguments
             for kw in node.keywords:
-                args.append(f"{kw.arg}={repr(kw.value.value) if isinstance(kw.value, ast.Constant) else '...'}")
+                kw_value = None
+                if isinstance(kw.value, ast.Constant):
+                    kw_value = repr(kw.value.value)
+                elif isinstance(kw.value, ast.Name):
+                    kw_value = kw.value.id
+                elif isinstance(kw.value, ast.Call):
+                    kw_value = f"{self._get_attribute_path(kw.value.func)}(...)"
+                elif isinstance(kw.value, ast.List):
+                    list_items = []
+                    for item in kw.value.elts:
+                        if isinstance(item, ast.Constant):
+                            list_items.append(repr(item.value))
+                        else:
+                            list_items.append("...")
+                    kw_value = f"[{', '.join(list_items)}]"
+                else:
+                    kw_value = "..."
+
+                args.append(f"{kw.arg}={kw_value}")
+
             return f"{func_name}({', '.join(args)})"
         elif isinstance(node, ast.Attribute):
             return self._get_attribute_path(node)
@@ -301,9 +350,58 @@ def generate_idl_from_structure(structure: Dict[str, Any]) -> str:
             for line in func["docstring"].split('\n'):
                 lines.append(f"// {line.strip()}")
 
-        # Add decorators as annotations
+        # Indicate if function is async
+        if func.get("is_async", False):
+            lines.append(f"// This is an async function")
+
+        # Handle decorators with special treatment for routers
         for decorator in func.get("decorators", []):
-            lines.append(f"@{decorator}")
+            decorator_str = str(decorator)
+
+            # Convert router decorators to a cleaner Route annotation
+            if "router." in decorator_str:
+                http_method = ""
+                path = ""
+                tags = []
+
+                # Determine HTTP method
+                if "get(" in decorator_str.lower():
+                    http_method = "GET"
+                elif "post(" in decorator_str.lower():
+                    http_method = "POST"
+                elif "put(" in decorator_str.lower():
+                    http_method = "PUT"
+                elif "delete(" in decorator_str.lower():
+                    http_method = "DELETE"
+                elif "patch(" in decorator_str.lower():
+                    http_method = "PATCH"
+
+                # Extract path and tags - simple parsing from the decorator string
+                if "(" in decorator_str and ")" in decorator_str:
+                    args_str = decorator_str.split("(", 1)[1].rsplit(")", 1)[0]
+                    args_parts = args_str.split(",")
+
+                    # First argument is typically the path
+                    if args_parts and ('"' in args_parts[0] or "'" in args_parts[0]):
+                        path = args_parts[0].strip().strip('"\'')
+
+                    # Look for tags
+                    for part in args_parts:
+                        if "tags=" in part:
+                            tags_str = part.split("tags=", 1)[1].strip()
+                            if tags_str.startswith("[") and "]" in tags_str:
+                                tags_content = tags_str.split("[", 1)[1].split("]")[0]
+                                tags = [t.strip().strip('"\'') for t in tags_content.split(",") if t.strip()]
+
+                if http_method and path:
+                    if tags:
+                        lines.append(f"@Route(method={http_method}, path=\"{path}\", tags={tags})")
+                    else:
+                        lines.append(f"@Route(method={http_method}, path=\"{path}\")")
+                else:
+                    lines.append(f"@{decorator}")
+            else:
+                lines.append(f"@{decorator}")
 
         # Create function signature
         params_str = []
@@ -368,6 +466,10 @@ def generate_idl_from_structure(structure: Dict[str, Any]) -> str:
             if method.get("docstring"):
                 for line in method["docstring"].split('\n'):
                     lines.append(f"  // {line.strip()}")
+
+            # Indicate if method is async
+            if method.get("is_async", False):
+                lines.append(f"  // This is an async method")
 
             # Add decorators as annotations
             for decorator in method.get("decorators", []):

@@ -255,20 +255,10 @@ def scan_files(
         all_files (List[Dict[str, Any]]): List to store file information.
         list_files (bool): Whether to print found files.
     """
-    # Process regular input paths
-    process_paths(
-        input_paths,
-        exclude_dirs,
-        exclude_files,
-        recursive,
-        default_extension,
-        None,  # No transform for regular input paths
-        input_paths_abs,
-        all_files,
-        list_files,
-    )
+    # Keep track of transformed files to avoid duplication
+    transformed_files = set()
 
-    # Process transform paths
+    # First, process transform paths to populate transformed_files set
     process_paths(
         transform_paths,
         exclude_dirs,
@@ -279,6 +269,21 @@ def scan_files(
         input_paths_abs,
         all_files,
         list_files,
+        transformed_files,
+    )
+
+    # Then process regular input paths, skipping files that are already transformed
+    process_paths(
+        input_paths,
+        exclude_dirs,
+        exclude_files,
+        recursive,
+        default_extension,
+        None,  # No transform for regular input paths
+        input_paths_abs,
+        all_files,
+        list_files,
+        transformed_files,
     )
 
 
@@ -292,6 +297,7 @@ def process_paths(
         paths_abs: set,
         all_files: List[Dict[str, Any]],
         list_files: bool,
+        transformed_files: Optional[set] = None,
 ):
     """
     Process a list of paths and collect files to process.
@@ -306,7 +312,11 @@ def process_paths(
         paths_abs (set): Absolute paths of the input.
         all_files (List[Dict[str, Any]]): List to store file information.
         list_files (bool): Whether to print found files.
+        transformed_files (Optional[set]): Set of normalized file paths that have been transformed
     """
+    if transformed_files is None:
+        transformed_files = set()
+
     paths_to_scan: List[Tuple[str, List[str], Optional[str]]] = []
     index = 0  # Initialize index for file ordering
 
@@ -354,6 +364,18 @@ def process_paths(
                 continue
             if not is_text_file(path):
                 continue
+
+            # Normalize file path for comparison
+            normalized_path = os.path.normpath(os.path.abspath(path))
+
+            # Skip if the file is in the transformed_files set and we're not transforming
+            if normalized_path in transformed_files and transform_type is None:
+                continue
+
+            # Add to transformed_files if we're transforming
+            if transform_type is not None:
+                transformed_files.add(normalized_path)
+
             if list_files:
                 click.echo(f"Found file: {path}" +
                            (f" (with transform: {transform_type})" if transform_type else ""))
@@ -398,6 +420,18 @@ def process_paths(
                     file_path = os.path.join(root, file)
                     if not is_text_file(file_path):
                         continue
+
+                    # Normalize file path for comparison
+                    normalized_path = os.path.normpath(os.path.abspath(file_path))
+
+                    # Skip if the file is in the transformed_files set and we're not transforming
+                    if normalized_path in transformed_files and transform_type is None:
+                        continue
+
+                    # Add to transformed_files if we're transforming
+                    if transform_type is not None:
+                        transformed_files.add(normalized_path)
+
                     relative_path = os.path.relpath(file_path, directory)
                     if list_files:
                         click.echo(f"Found file: {file_path}" +
