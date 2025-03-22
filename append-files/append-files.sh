@@ -36,7 +36,7 @@ if ! command_exists pip3; then
 fi
 
 # Required Python packages
-REQUIRED_PKG="click pyperclip tqdm mimetypes"
+REQUIRED_PKG="click pyperclip tqdm"
 
 # Check if each required package is installed, if not, install it
 for pkg in $REQUIRED_PKG; do
@@ -53,13 +53,19 @@ done
 # Get the directory of the bash script
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-# Path to the Python script
+# Path to the Python scripts
 PYTHON_SCRIPT="${SCRIPT_DIR}/append-files.py"
+EXTRACT_SCRIPT="${SCRIPT_DIR}/extract-code-signatures.py"
 
-# Check if the Python script exists
+# Check if the Python scripts exist
 if [ ! -f "$PYTHON_SCRIPT" ]; then
     echo "Error: Python script not found at $PYTHON_SCRIPT"
     exit 1
+fi
+
+if [ ! -f "$EXTRACT_SCRIPT" ]; then
+    echo "Warning: extract-code-signatures.py not found at $EXTRACT_SCRIPT"
+    echo "Transform functionality will be limited"
 fi
 
 # Run the Python script with all arguments passed to this bash script

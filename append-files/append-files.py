@@ -1,10 +1,50 @@
+#!/usr/bin/env python3
 import os
+import sys
 import threading
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 
 import click
 import pyperclip
 from tqdm import tqdm
+
+# Import the transform functionality from extract-code-signatures.py
+# Check if the script is in the same directory or in PYTHONPATH
+try:
+    # First try direct import
+    from extract_code_signatures import transform_content, SYSTEM_PROMPT
+except ImportError:
+    # If that fails, try to find the script in the same directory
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    if script_dir not in sys.path:
+        sys.path.append(script_dir)
+    try:
+        # Try with underscores (Python module naming convention)
+        from extract_code_signatures import transform_content, SYSTEM_PROMPT
+    except ImportError:
+        # Try with the exact filename
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "extract_code_signatures",
+            os.path.join(script_dir, "extract-code-signatures.py")
+        )
+        if spec and spec.loader:
+            extract_code_signatures = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(extract_code_signatures)
+            transform_content = extract_code_signatures.transform_content
+            SYSTEM_PROMPT = extract_code_signatures.SYSTEM_PROMPT
+        else:
+            # Define fallback versions if import fails
+            def transform_content(content, transform_type):
+                print(f"Warning: extract-code-signatures.py not found. Cannot transform to {transform_type}.",
+                      file=sys.stderr)
+                return content
+
+
+            SYSTEM_PROMPT = """System Prompt:
+You are an expert Python programmer analyzing code files that include both
+IDL (Interface Definition Language) declarations and Python implementations."""
 
 # Default file extension to use when none is specified
 default_extension = ".py"
@@ -85,46 +125,114 @@ def read_file_content(file_path: str) -> str:
 
 
 def scan_files(
-    input_paths: List[str],
-    exclude_dirs: List[str],
-    exclude_files: List[str],
-    recursive: bool,
-    default_extension: str,
-    input_paths_abs: set,
-    all_files: List[Dict[str, Any]],
-    list_files: bool,
+        input_paths: List[str],
+        transform_paths: List[str],
+        exclude_dirs: List[str],
+        exclude_files: List[str],
+        recursive: bool,
+        default_extension: str,
+        transform_format: str,
+        input_paths_abs: set,
+        all_files: List[Dict[str, Any]],
+        list_files: bool,
 ):
     """
     Scan input paths and collect files to process.
 
     Args:
         input_paths (List[str]): Input files or directories with optional extensions.
+        transform_paths (List[str]): Transform files or directories with optional extensions and transform type.
         exclude_dirs (List[str]): Directories to exclude.
         exclude_files (List[str]): Files to exclude.
         recursive (bool): Whether to scan directories recursively.
         default_extension (str): Default file extension to use.
+        transform_format (str): Default transform format to use.
         input_paths_abs (set): Absolute paths of the input.
         all_files (List[Dict[str, Any]]): List to store file information.
         list_files (bool): Whether to print found files.
     """
-    paths_to_scan: List[Tuple[str, List[str]]] = []
+    # Process regular input paths
+    process_paths(
+        input_paths,
+        exclude_dirs,
+        exclude_files,
+        recursive,
+        default_extension,
+        None,  # No transform for regular input paths
+        input_paths_abs,
+        all_files,
+        list_files,
+    )
+
+    # Process transform paths
+    process_paths(
+        transform_paths,
+        exclude_dirs,
+        exclude_files,
+        recursive,
+        default_extension,
+        transform_format,  # Use the default transform format
+        input_paths_abs,
+        all_files,
+        list_files,
+    )
+
+
+def process_paths(
+        paths: List[str],
+        exclude_dirs: List[str],
+        exclude_files: List[str],
+        recursive: bool,
+        default_extension: str,
+        transform_format: Optional[str],
+        paths_abs: set,
+        all_files: List[Dict[str, Any]],
+        list_files: bool,
+):
+    """
+    Process a list of paths and collect files to process.
+
+    Args:
+        paths (List[str]): Files or directories with optional extensions and transform type.
+        exclude_dirs (List[str]): Directories to exclude.
+        exclude_files (List[str]): Files to exclude.
+        recursive (bool): Whether to scan directories recursively.
+        default_extension (str): Default file extension to use.
+        transform_format (Optional[str]): Default transform format to use.
+        paths_abs (set): Absolute paths of the input.
+        all_files (List[Dict[str, Any]]): List to store file information.
+        list_files (bool): Whether to print found files.
+    """
+    paths_to_scan: List[Tuple[str, List[str], Optional[str]]] = []
     index = 0  # Initialize index for file ordering
 
-    for path_spec in input_paths:
-        # Split path and extensions if specified
-        parts = path_spec.split(":", 1)
+    for path_spec in paths:
+        # Split path, extensions, and transform type if specified
+        parts = path_spec.split(":", 2)
         path = parts[0]
         extensions = []
+        transform_type = transform_format  # Use the provided default transform format
 
         if not os.path.exists(path):
             click.echo(f"Error: Path '{path}' does not exist.", err=True)
             continue
 
         if len(parts) > 1:
-            # Normalize specified extensions
-            extensions = normalize_extensions(parts[1].split(","))
-        else:
-            # Use default extension
+            # The second part can be either extensions or transform type
+            if len(parts) > 2:
+                # If we have 3 parts, the second is extensions and the third is transform type
+                extensions = normalize_extensions(parts[1].split(","))
+                transform_type = parts[2]
+            else:
+                # If we have 2 parts, check if the second part is a valid transform type
+                if parts[1] in ["idl", "json"]:
+                    transform_type = parts[1]
+                else:
+                    # Otherwise, it's extensions
+                    extensions = normalize_extensions(parts[1].split(","))
+
+        if not extensions:
+            # Use default extension if none specified
             extensions = [default_extension]
 
         # Check if the path is hidden
@@ -133,7 +241,7 @@ def scan_files(
         path_is_hidden = path_basename.startswith(".")
 
         # Skip hidden paths unless explicitly included
-        if path_is_hidden and path_abspath not in input_paths_abs:
+        if path_is_hidden and path_abspath not in paths_abs:
             continue
 
         if os.path.isfile(path):
@@ -143,24 +251,26 @@ def scan_files(
             if not is_text_file(path):
                 continue
             if list_files:
-                click.echo(f"Found file: {path}")
+                click.echo(f"Found file: {path}" +
+                           (f" (with transform: {transform_type})" if transform_type else ""))
             all_files.append(
                 {
                     "index": index,
                     "file_path": path,
                     "relative_path": os.path.basename(path),
+                    "transform": transform_type,
                 }
             )
             index += 1
         elif os.path.isdir(path):
             # Add directory to scan
-            paths_to_scan.append((path, extensions))
+            paths_to_scan.append((path, extensions, transform_type))
         else:
             click.echo(f"Error: '{path}' is not a file or directory.", err=True)
             continue
 
     # Scan directories
-    for directory, extensions in paths_to_scan:
+    for directory, extensions, transform_type in paths_to_scan:
         for root, dirs, files in os.walk(directory):
             if not recursive:
                 dirs[:] = []  # Do not recurse into subdirectories
@@ -169,7 +279,7 @@ def scan_files(
             dirs[:] = [
                 d
                 for d in dirs
-                if not d.startswith(".") or os.path.join(root, d) in input_paths_abs
+                if not d.startswith(".") or os.path.join(root, d) in paths_abs
             ]
             # Exclude specified directories
             dirs[:] = [d for d in dirs if d not in exclude_dirs]
@@ -186,23 +296,25 @@ def scan_files(
                         continue
                     relative_path = os.path.relpath(file_path, directory)
                     if list_files:
-                        click.echo(f"Found file: {file_path}")
+                        click.echo(f"Found file: {file_path}" +
+                                   (f" (with transform: {transform_type})" if transform_type else ""))
                     all_files.append(
                         {
                             "index": index,
                             "file_path": file_path,
                             "relative_path": relative_path,
+                            "transform": transform_type,
                         }
                     )
                     index += 1
 
 
 def consumer(
-    all_files: List[Dict[str, Any]],
-    append_content_list: List[Dict[str, Any]],
-    header_template: str,
-    footer_template: str,
-    progress_bar,
+        all_files: List[Dict[str, Any]],
+        append_content_list: List[Dict[str, Any]],
+        header_template: str,
+        footer_template: str,
+        progress_bar,
 ):
     """
     Process files from the shared list and append their content.
@@ -224,8 +336,18 @@ def consumer(
         file_path = file_info["file_path"]
         relative_path = file_info["relative_path"]
         index = file_info["index"]
+        transform = file_info.get("transform")
+
         content = read_file_content(file_path)
+
         if content:
+            # Apply transformation if specified
+            if transform:
+                try:
+                    content = transform_content(content, transform)
+                except Exception as e:
+                    click.echo(f"Error transforming {file_path} to {transform}: {e}", err=True)
+
             # Apply header and footer
             header = header_template.format(filename=relative_path, filepath=file_path)
             footer = footer_template.format(filename=relative_path, filepath=file_path)
@@ -234,7 +356,8 @@ def consumer(
             )
         if progress_bar is not None:
             # Update progress bar
-            progress_bar.set_postfix(file=os.path.basename(file_path), refresh=False)
+            transform_info = f" ({transform})" if transform else ""
+            progress_bar.set_postfix(file=f"{os.path.basename(file_path)}{transform_info}", refresh=False)
             progress_bar.update(1)
 
 
@@ -246,6 +369,20 @@ def consumer(
     multiple=True,
     type=str,
     help="Input files or directories with extensions (e.g., file.py, dir/:ext1,ext2)",
+)
+@click.option(
+    "--transform",
+    "-t",
+    "transform_paths",
+    multiple=True,
+    type=str,
+    help="Transform files or directories with optional extensions and transform type (e.g., file.py:idl, dir/:py:json)",
+)
+@click.option(
+    "--transform-format",
+    type=click.Choice(["idl", "json"]),
+    default="idl",
+    help="Default transform format to use (default: idl)",
 )
 @click.option("--output-file", "-o", help="Name of the output file", show_default=True)
 @click.option(
@@ -300,34 +437,48 @@ def consumer(
     help="Default file extension to use",
     show_default=True,
 )
+@click.option(
+    "--include-system-prompt",
+    is_flag=True,
+    help="Include system prompt for IDL transformations",
+    show_default=True,
+)
 @click.pass_context
 def main(
-    ctx,
-    input_paths,
-    output_file,
-    clipboard,
-    exclude_dirs,
-    exclude_files,
-    verbose,
-    header_template,
-    footer_template,
-    non_recursive,
-    default_extension,
+        ctx,
+        input_paths,
+        transform_paths,
+        transform_format,
+        output_file,
+        clipboard,
+        exclude_dirs,
+        exclude_files,
+        verbose,
+        header_template,
+        footer_template,
+        non_recursive,
+        default_extension,
+        include_system_prompt,
 ):
     """
     Append files and directories with specified extensions or directly from files.
 
     This script concatenates the contents of specified files and directories,
-    applying optional headers and footers to each file's content.
+    applying optional headers and footers to each file's content. It can also
+    transform file contents using various formats (e.g., IDL, JSON).
     """
-    if not input_paths:
-        # Display help if no input paths are provided
+    if not input_paths and not transform_paths:
+        # Display help if no input or transform paths are provided
         click.echo(ctx.get_help())
         ctx.exit()
 
     recursive = not non_recursive
     # Convert input paths to absolute paths for comparison
-    input_paths_abs = set(os.path.abspath(p.split(":", 1)[0]) for p in input_paths)
+    input_paths_abs = set()
+    for p in input_paths:
+        input_paths_abs.add(os.path.abspath(p.split(":", 1)[0]))
+    for p in transform_paths:
+        input_paths_abs.add(os.path.abspath(p.split(":", 1)[0]))
 
     all_files: List[Dict[str, Any]] = []  # List to store files to process
     append_content_list: List[Dict[str, Any]] = []  # List to store processed content
@@ -337,10 +488,12 @@ def main(
     # Scan and collect files to process
     scan_files(
         input_paths,
+        transform_paths,
         exclude_dirs,
         exclude_files,
         recursive,
         default_extension,
+        transform_format,
         input_paths_abs,
         all_files,
         verbose,
@@ -391,8 +544,11 @@ def main(
     # Sort the content to maintain the original order
     append_content_list.sort(key=lambda x: x["index"])
 
+    # Add system prompt if requested
+    prefix = SYSTEM_PROMPT + "\n\n" if include_system_prompt else ""
+
     # Concatenate the content from all files
-    append_content = "\n".join(item["content"] for item in append_content_list)
+    append_content = prefix + "\n".join(item["content"] for item in append_content_list)
 
     if output_file:
         # Write the concatenated content to the specified output file
