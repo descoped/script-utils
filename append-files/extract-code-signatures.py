@@ -592,7 +592,7 @@ def process_file(file_path: str) -> Dict[str, Any]:
     return structure
 
 
-def process_directory(directory: str, exclude_patterns: List[str], output_format: str) -> List[Dict[str, Any]]:
+def process_directory(directory: str, exclude_patterns: List[str]) -> List[Dict[str, Any]]:
     """Process all Python files in a directory recursively."""
     results = []
 
@@ -661,7 +661,7 @@ def main():
     if os.path.isfile(args.path):
         structures = [process_file(args.path)]
     elif os.path.isdir(args.path):
-        structures = process_directory(args.path, args.exclude, args.format)
+        structures = process_directory(args.path, args.exclude)
     else:
         print(f"Error: {args.path} is not a valid file or directory", file=sys.stderr)
         sys.exit(1)
